@@ -1,0 +1,821 @@
+#! /bin/sh -e
+
+# DP: libjava updates from gcc-4_1-branch until 20060318.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/ChangeLog gcc-4_1-branch/libjava/ChangeLog
+--- gcc_4_1_0_release/libjava/ChangeLog	2006-03-03 03:29:04.313155816 +0100
++++ gcc-4_1-branch/libjava/ChangeLog	2006-03-16 21:32:08.210664048 +0100
+@@ -1,3 +1,35 @@
++2006-02-16  Andrew Haley  <aph@redhat.com>
++
++	* stacktrace.cc (GetStackTraceElements): Call
++	gnu::gcj::runtime::NameFinder::removeUnknown() to determine if
++	non-Java frames should be removed from a printed stack trace.
++	Pass methodName to getLineNumberForFrame().
++	(getLineNumberForFrame): Set method_name from info.dli_sname.
++	* gnu/gcj/runtime/NameFinder.java (removeUnknown): New method.
++	(remove_unknown): New variable.
++	* include/java-stack.h (_Jv_StackTrace::getLineNumberForFrame):
++	Add methodName arg.
++
++2006-03-10  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/25713:
++	* java/util/zip/GZIPOutputStream.java (write(int)): Don't update
++	CRC.
++
++2006-03-09  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/24461:
++	* java/util/zip/InflaterInputStream.java (fill): Throw exception
++	if stream is truncated.
++
++2006-03-07  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/26103:
++	* java/lang/ClassLoader.java (loadClass): Don't throw
++	StringIndexOutOfBoundsException if name is empty.
++	* java/lang/natClassLoader.cc (loadClassFromSig): Throw exception
++	if class not found.
++
+ 2006-02-28  Release Manager
+ 
+ 	* GCC 4.1.0 released.
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/classpath/aclocal.m4 gcc-4_1-branch/libjava/classpath/aclocal.m4
+--- gcc_4_1_0_release/libjava/classpath/aclocal.m4	2005-11-16 03:54:30.267536000 +0100
++++ gcc-4_1-branch/libjava/classpath/aclocal.m4	2006-03-16 21:32:08.062686544 +0100
+@@ -547,39 +547,6 @@
+ install_sh=${install_sh-"$am_aux_dir/install-sh"}
+ AC_SUBST(install_sh)])
+ 
+-#                                                          -*- Autoconf -*-
+-# Copyright (C) 2003  Free Software Foundation, Inc.
+-
+-# This program is free software; you can redistribute it and/or modify
+-# it under the terms of the GNU General Public License as published by
+-# the Free Software Foundation; either version 2, or (at your option)
+-# any later version.
+-
+-# This program is distributed in the hope that it will be useful,
+-# but WITHOUT ANY WARRANTY; without even the implied warranty of
+-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-# GNU General Public License for more details.
+-
+-# You should have received a copy of the GNU General Public License
+-# along with this program; if not, write to the Free Software
+-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+-# 02111-1307, USA.
+-
+-# serial 1
+-
+-# Check whether the underlying file-system supports filenames
+-# with a leading dot.  For instance MS-DOS doesn't.
+-AC_DEFUN([AM_SET_LEADING_DOT],
+-[rm -rf .tst 2>/dev/null
+-mkdir .tst 2>/dev/null
+-if test -d .tst; then
+-  am__leading_dot=.
+-else
+-  am__leading_dot=_
+-fi
+-rmdir .tst 2>/dev/null
+-AC_SUBST([am__leading_dot])])
+-
+ # Add --enable-maintainer-mode option to configure.
+ # From Jim Meyering
+ 
+@@ -1086,6 +1053,9 @@
+ AC_SUBST([am__untar])
+ ]) # _AM_PROG_TAR
+ 
++m4_include([../../config/depstand.m4])
++m4_include([../../config/lead-dot.m4])
++m4_include([../../config/no-executables.m4])
+ m4_include([../../libtool.m4])
+ m4_include([m4/acattribute.m4])
+ m4_include([m4/accross.m4])
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/classpath/ChangeLog.gcj gcc-4_1-branch/libjava/classpath/ChangeLog.gcj
+--- gcc_4_1_0_release/libjava/classpath/ChangeLog.gcj	2006-02-14 02:02:25.137670000 +0100
++++ gcc-4_1-branch/libjava/classpath/ChangeLog.gcj	2006-03-16 21:32:08.060686848 +0100
+@@ -1,3 +1,16 @@
++2006-03-16  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/26706:
++	* aclocal.m4, configure: Rebuilt.
++	* configure.ac (GCC_NO_EXECUTABLES): Moved earlier.
++
++2006-03-15  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/26688:
++	* lib/Makefile.in: Rebuilt.
++	* lib/Makefile.am (propertydirs): Ignore .svn directories.
++	(metafiles): Likewise.
++
+ 2006-02-13  Ito Kazumitsu  <kaz@maczuka.gcd.org>
+ 
+ 	Fixes bug #26166
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/classpath/configure gcc-4_1-branch/libjava/classpath/configure
+--- gcc_4_1_0_release/libjava/classpath/configure	2005-12-02 07:58:02.824346000 +0100
++++ gcc-4_1-branch/libjava/classpath/configure	2006-03-16 21:32:08.056687456 +0100
+@@ -2022,6 +2022,8 @@
+ 
+ 
+ 
++
++
+ # Check whether --enable-jni or --disable-jni was given.
+ if test "${enable_jni+set}" = set; then
+   enableval="$enable_jni"
+@@ -2526,6 +2528,39 @@
+   return 0;
+ }
+ _ACEOF
++# FIXME: Cleanup?
++if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
++  (eval $ac_link) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; then
++  gcc_no_link=no
++else
++  gcc_no_link=yes
++fi
++
++if test x$gcc_no_link = xyes; then
++  # Setting cross_compile will disable run tests; it will
++  # also disable AC_CHECK_FILE but that's generally
++  # correct if we can't link.
++  cross_compiling=yes
++  EXEEXT=
++else
++  cat >conftest.$ac_ext <<_ACEOF
++/* confdefs.h.  */
++_ACEOF
++cat confdefs.h >>conftest.$ac_ext
++cat >>conftest.$ac_ext <<_ACEOF
++/* end confdefs.h.  */
++
++int
++main ()
++{
++
++  ;
++  return 0;
++}
++_ACEOF
+ ac_clean_files_save=$ac_clean_files
+ ac_clean_files="$ac_clean_files a.out a.exe b.out"
+ # Try to create an executable without -o first, disregard a.out.
+@@ -2662,6 +2697,7 @@
+ rm -f conftest.$ac_ext
+ EXEEXT=$ac_cv_exeext
+ ac_exeext=$EXEEXT
++fi
+ echo "$as_me:$LINENO: checking for suffix of object files" >&5
+ echo $ECHO_N "checking for suffix of object files... $ECHO_C" >&6
+ if test "${ac_cv_objext+set}" = set; then
+@@ -3865,6 +3901,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lasound  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -4346,8 +4387,6 @@
+ 
+ 
+ 
+-GCC_NO_EXECUTABLES
+-
+ # Check whether --enable-static or --disable-static was given.
+ if test "${enable_static+set}" = set; then
+   enableval="$enable_static"
+@@ -5132,7 +5171,7 @@
+ case $host in
+ *-*-irix6*)
+   # Find out which ABI we are using.
+-  echo '#line 5135 "configure"' > conftest.$ac_ext
++  echo '#line 5174 "configure"' > conftest.$ac_ext
+   if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+   (eval $ac_compile) 2>&5
+   ac_status=$?
+@@ -5250,7 +5289,12 @@
+ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ ac_compiler_gnu=$ac_cv_c_compiler_gnu
+ 
+-     cat >conftest.$ac_ext <<_ACEOF
++     if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -7967,7 +8011,12 @@
+ if eval "test \"\${$as_ac_var+set}\" = set"; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -8317,7 +8366,12 @@
+ if test "${ac_cv_var_tzname+set}" = set; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -9293,7 +9347,12 @@
+ 
+     am_cv_func_iconv="no, consider installing GNU libiconv"
+     am_cv_lib_iconv=no
+-    cat >conftest.$ac_ext <<_ACEOF
++    if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -9344,7 +9403,12 @@
+     if test "$am_cv_func_iconv" != yes; then
+       am_save_LIBS="$LIBS"
+       LIBS="$LIBS $LIBICONV"
+-      cat >conftest.$ac_ext <<_ACEOF
++      if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -9863,7 +9927,12 @@
+   # Don't add to $LIBS permanently.
+   ac_save_LIBS=$LIBS
+   LIBS="-lXt $LIBS"
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -9975,7 +10044,12 @@
+       echo "$as_me:$LINENO: checking whether -R must be followed by a space" >&5
+ echo $ECHO_N "checking whether -R must be followed by a space... $ECHO_C" >&6
+       ac_xsave_LIBS=$LIBS; LIBS="$LIBS -R$x_libraries"
+-      cat >conftest.$ac_ext <<_ACEOF
++      if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10027,7 +10101,12 @@
+ 	X_LIBS="$X_LIBS -R$x_libraries"
+       else
+ 	LIBS="$ac_xsave_LIBS -R $x_libraries"
+-	cat >conftest.$ac_ext <<_ACEOF
++	if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10097,7 +10176,12 @@
+     # libraries were built with DECnet support.  And Karl Berry says
+     # the Alpha needs dnet_stub (dnet does not exist).
+     ac_xsave_LIBS="$LIBS"; LIBS="$LIBS $X_LIBS -lX11"
+-    cat >conftest.$ac_ext <<_ACEOF
++    if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10153,6 +10237,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-ldnet  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -10222,6 +10311,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-ldnet_stub  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -10302,7 +10396,12 @@
+ if test "${ac_cv_func_gethostbyname+set}" = set; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10396,6 +10495,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lnsl  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -10465,6 +10569,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lbsd  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -10541,7 +10650,12 @@
+ if test "${ac_cv_func_connect+set}" = set; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10635,6 +10749,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lsocket $X_EXTRA_LIBS $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -10704,7 +10823,12 @@
+ if test "${ac_cv_func_remove+set}" = set; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10798,6 +10922,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lposix  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -10867,7 +10996,12 @@
+ if test "${ac_cv_func_shmat+set}" = set; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+-  cat >conftest.$ac_ext <<_ACEOF
++  if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
++cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+ cat confdefs.h >>conftest.$ac_ext
+@@ -10961,6 +11095,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lipc  $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -11041,6 +11180,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lICE $X_EXTRA_LIBS $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -11118,6 +11262,11 @@
+ else
+   ac_check_lib_save_LIBS=$LIBS
+ LIBS="-lXtst ${X_LIBS} $LIBS"
++if test x$gcc_no_link = xyes; then
++  { { echo "$as_me:$LINENO: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&5
++echo "$as_me: error: Link tests are not allowed after GCC_NO_EXECUTABLES." >&2;}
++   { (exit 1); exit 1; }; }
++fi
+ cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/classpath/configure.ac gcc-4_1-branch/libjava/classpath/configure.ac
+--- gcc_4_1_0_release/libjava/classpath/configure.ac	2005-12-02 07:58:03.527239000 +0100
++++ gcc-4_1-branch/libjava/classpath/configure.ac	2006-03-16 21:32:08.059687000 +0100
+@@ -38,6 +38,9 @@
+ AC_CONFIG_HEADERS([include/config.h])
+ AC_PREFIX_DEFAULT(/usr/local/classpath)
+ 
++dnl GCC LOCAL
++GCC_NO_EXECUTABLES
++
+ dnl -----------------------------------------------------------
+ dnl Enable JNI libraries (enabled by default)
+ dnl -----------------------------------------------------------
+@@ -227,9 +230,6 @@
+ dnl Checks for programs.
+ dnl -----------------------------------------------------------
+ 
+-dnl GCC LOCAL
+-GCC_NO_EXECUTABLES
+-
+ dnl Initialize libtool
+ AC_DISABLE_STATIC
+ AC_PROG_LIBTOOL
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/classpath/lib/Makefile.am gcc-4_1-branch/libjava/classpath/lib/Makefile.am
+--- gcc_4_1_0_release/libjava/classpath/lib/Makefile.am	2006-01-07 03:10:50.853295000 +0100
++++ gcc-4_1-branch/libjava/classpath/lib/Makefile.am	2006-03-16 21:32:07.975699768 +0100
+@@ -5,9 +5,11 @@
+ ## this file and restart the make process again
+ sinclude $(JAVA_DEPEND)
+ 
+-propertydirs :=  $(shell cd $(top_srcdir)/resource && $(FIND) gnu java org META-INF -type d ! -name CVS -print)
++## GCJ LOCAL: prune .svn directories
++propertydirs :=  $(shell cd $(top_srcdir)/resource && $(FIND) gnu java org META-INF -type d ! -name CVS -print | fgrep -v .svn)
+ propertyfiles :=  $(shell cd $(top_srcdir)/resource && $(FIND) gnu java org -name \*\.properties -print)
+-metafiles :=  $(shell cd $(top_srcdir)/resource && $(FIND) META-INF -name CVS -prune -o -type f -print)
++metafiles :=  $(shell cd $(top_srcdir)/resource && $(FIND) META-INF -name CVS -prune -o -type f -print | fgrep -v .svn)
++## END GCJ LOCAL
+ iconfiles :=  $(shell cd $(top_srcdir) && $(FIND) gnu/javax/swing/plaf/gtk/icons -name *.png -type f -print)
+ 
+ compile_classpath = $(vm_classes):$(top_srcdir):$(top_srcdir)/external/w3c_dom:$(top_srcdir)/external/sax:.:$(USER_CLASSLIB)
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/classpath/lib/Makefile.in gcc-4_1-branch/libjava/classpath/lib/Makefile.in
+--- gcc_4_1_0_release/libjava/classpath/lib/Makefile.in	2006-01-07 03:10:50.839297000 +0100
++++ gcc-4_1-branch/libjava/classpath/lib/Makefile.in	2006-03-16 21:32:07.966701136 +0100
+@@ -248,9 +248,9 @@
+ target_vendor = @target_vendor@
+ vm_classes = @vm_classes@
+ JAVA_DEPEND = java.dep
+-propertydirs := $(shell cd $(top_srcdir)/resource && $(FIND) gnu java org META-INF -type d ! -name CVS -print)
++propertydirs := $(shell cd $(top_srcdir)/resource && $(FIND) gnu java org META-INF -type d ! -name CVS -print | fgrep -v .svn)
+ propertyfiles := $(shell cd $(top_srcdir)/resource && $(FIND) gnu java org -name \*\.properties -print)
+-metafiles := $(shell cd $(top_srcdir)/resource && $(FIND) META-INF -name CVS -prune -o -type f -print)
++metafiles := $(shell cd $(top_srcdir)/resource && $(FIND) META-INF -name CVS -prune -o -type f -print | fgrep -v .svn)
+ iconfiles := $(shell cd $(top_srcdir) && $(FIND) gnu/javax/swing/plaf/gtk/icons -name *.png -type f -print)
+ compile_classpath = $(vm_classes):$(top_srcdir):$(top_srcdir)/external/w3c_dom:$(top_srcdir)/external/sax:.:$(USER_CLASSLIB)
+ @FOUND_ECJ_TRUE@@FOUND_GCJX_FALSE@@FOUND_GCJ_FALSE@@FOUND_JIKES_FALSE@@FOUND_KJC_FALSE@JAVAC = $(ECJ) -source 1.4 -encoding UTF-8 -warn:-deprecation,serial,typeHiding,unchecked,unused,varargsCast -proceedOnError -bootclasspath '' -classpath $(compile_classpath) -d . @classes
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/gnu/gcj/runtime/NameFinder.java gcc-4_1-branch/libjava/gnu/gcj/runtime/NameFinder.java
+--- gcc_4_1_0_release/libjava/gnu/gcj/runtime/NameFinder.java	2005-10-29 06:28:52.000000000 +0200
++++ gcc-4_1-branch/libjava/gnu/gcj/runtime/NameFinder.java	2006-03-16 21:32:07.528767712 +0100
+@@ -34,6 +34,9 @@
+  *     source file and line number info. Throwable.printStackTrace() will
+  *     be faster if this property is set to 'false'.
+  * </ul>
++ * <ul><code>gnu.gcj.runtime.NameFinder.remove_unknown</code>
++ *     Whether calls to unknown functions (class and method names are unknown)
++ *     should be removed from the stack trace. </ul>
+  * </li>
+  *
+  * <code>close()</code> should be called to get rid of all resources.
+@@ -57,6 +60,18 @@
+                 ("gnu.gcj.runtime.NameFinder.use_addr2line", "true")
+             ).booleanValue();
+ 
++  private static final boolean remove_unknown
++	  = Boolean.valueOf(System.getProperty
++		("gnu.gcj.runtime.NameFinder.remove_unknown", "true")
++	    ).booleanValue();
++
++  // Return true if non-Java frames should be removed from stack
++  // traces.
++  static final boolean removeUnknown()
++  {
++    return remove_unknown;
++  }
++
+   class Addr2Line
+   {
+     Process proc;
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/include/java-stack.h gcc-4_1-branch/libjava/include/java-stack.h
+--- gcc_4_1_0_release/libjava/include/java-stack.h	2005-10-29 06:30:51.000000000 +0200
++++ gcc-4_1-branch/libjava/include/java-stack.h	2006-03-16 21:32:08.151673016 +0100
+@@ -105,7 +105,8 @@
+   static jclass ClassForFrame (_Jv_StackFrame *frame);
+   static void FillInFrameInfo (_Jv_StackFrame *frame);
+   static void getLineNumberForFrame(_Jv_StackFrame *frame, NameFinder *finder, 
+-			     jstring *sourceFileName, jint *lineNum);
++				    jstring *sourceFileName, jint *lineNum,
++				    jstring *methodName);
+   
+   static _Unwind_Reason_Code UnwindTraceFn (struct _Unwind_Context *context, 
+     void *state_ptr);
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/java/lang/ClassLoader.java gcc-4_1-branch/libjava/java/lang/ClassLoader.java
+--- gcc_4_1_0_release/libjava/java/lang/ClassLoader.java	2005-10-29 06:28:56.000000000 +0200
++++ gcc-4_1-branch/libjava/java/lang/ClassLoader.java	2006-03-08 12:36:03.384730448 +0100
+@@ -1,5 +1,5 @@
+ /* ClassLoader.java -- responsible for loading classes into the VM
+-   Copyright (C) 1998, 1999, 2001, 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
++   Copyright (C) 1998, 1999, 2001, 2002, 2003, 2004, 2005, 2006 Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -288,7 +288,7 @@
+   {
+     // Arrays are handled specially.
+     Class c;
+-    if (name.charAt(0) == '[')
++    if (name.length() > 0 && name.charAt(0) == '[')
+       c = loadClassFromSig(name);
+     else
+       {
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/java/lang/natClassLoader.cc gcc-4_1-branch/libjava/java/lang/natClassLoader.cc
+--- gcc_4_1_0_release/libjava/java/lang/natClassLoader.cc	2006-01-04 20:20:56.856215000 +0100
++++ gcc-4_1-branch/libjava/java/lang/natClassLoader.cc	2006-03-08 12:36:03.380731056 +0100
+@@ -81,7 +81,10 @@
+   int len = _Jv_GetStringUTFLength (name);
+   char sig[len + 1];
+   _Jv_GetStringUTFRegion (name, 0, name->length(), sig);
+-  return _Jv_FindClassFromSignature(sig, this);
++  jclass result = _Jv_FindClassFromSignature(sig, this);
++  if (result == NULL)
++    throw new ClassNotFoundException(name);
++  return result;
+ }
+ 
+ 
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/java/util/zip/GZIPOutputStream.java gcc-4_1-branch/libjava/java/util/zip/GZIPOutputStream.java
+--- gcc_4_1_0_release/libjava/java/util/zip/GZIPOutputStream.java	2005-10-29 06:28:57.000000000 +0200
++++ gcc-4_1-branch/libjava/java/util/zip/GZIPOutputStream.java	2006-03-14 01:50:36.296466120 +0100
+@@ -1,5 +1,5 @@
+ /* GZIPOutputStream.java - Create a file in gzip format
+-   Copyright (C) 1999, 2000, 2001 Free Software Foundation, Inc.
++   Copyright (C) 1999, 2000, 2001, 2006 Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -98,7 +98,9 @@
+   public synchronized void write(int bval) throws IOException
+   {
+     super.write(bval);
+-    crc.update(bval);
++    // super.write(int) eventually calls our write(byte[],int,int),
++    // so updating the CRC here is wrong.
++    // crc.update(bval);
+   }
+ 
+   public synchronized void write(byte[] buf) throws IOException
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/java/util/zip/InflaterInputStream.java gcc-4_1-branch/libjava/java/util/zip/InflaterInputStream.java
+--- gcc_4_1_0_release/libjava/java/util/zip/InflaterInputStream.java	2005-10-29 06:28:57.000000000 +0200
++++ gcc-4_1-branch/libjava/java/util/zip/InflaterInputStream.java	2006-03-09 23:44:11.914551080 +0100
+@@ -1,5 +1,5 @@
+ /* InflaterInputStream.java - Input stream filter for decompressing
+-   Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005
++   Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006
+    Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+@@ -153,8 +153,10 @@
+     
+     len = in.read(buf, 0, buf.length);
+ 
+-    if (len >= 0)
+-      inf.setInput(buf, 0, len);
++    if (len < 0)
++      throw new ZipException("Deflated stream ends early.");
++    
++    inf.setInput(buf, 0, len);
+   }
+ 
+   /**
+diff -urN --exclude=.svn gcc_4_1_0_release/libjava/stacktrace.cc gcc-4_1-branch/libjava/stacktrace.cc
+--- gcc_4_1_0_release/libjava/stacktrace.cc	2005-12-01 17:45:47.832046000 +0100
++++ gcc-4_1-branch/libjava/stacktrace.cc	2006-03-16 21:32:08.208664352 +0100
+@@ -171,7 +171,8 @@
+ 
+ void
+ _Jv_StackTrace::getLineNumberForFrame(_Jv_StackFrame *frame, NameFinder *finder, 
+-		 jstring *sourceFileName, jint *lineNum)
++				      jstring *sourceFileName, jint *lineNum,
++				      jstring *methodName)
+ {
+ #ifdef INTERPRETER
+   if (frame->type == frame_interpreter)
+@@ -200,6 +201,9 @@
+       else
+         return;
+ 
++      if (*methodName == NULL && info.dli_sname)
++	*methodName = JvNewStringUTF (info.dli_sname);
++
+       // addr2line expects relative addresses for shared libraries.
+       if (strcmp (info.dli_fname, argv0) == 0)
+         offset = (_Unwind_Ptr) ip;
+@@ -323,16 +327,22 @@
+ 	end_idx = i - 1;
+     }
+   
++  const jboolean remove_unknown 
++    = gnu::gcj::runtime::NameFinder::removeUnknown();
++
+   // Second pass: Look up line-number info for remaining frames.
+   for (int i = start_idx; i <= end_idx; i++)
+     {
+       _Jv_StackFrame *frame = &trace->frames[i];
+       
+-      if (frame->klass == NULL)
+-        // Not a Java frame.
++      if (frame->klass == NULL && remove_unknown)
++	// Not a Java frame.
+ 	continue;
+-      
+-      jstring className = frame->klass->getName ();
++
++      jstring className = NULL;
++      if (frame->klass != NULL)
++	className = frame->klass->getName ();
++
+       jstring methodName = NULL;
+       if (frame->meth)
+         methodName = JvNewStringUTF (frame->meth->name->chars());
+@@ -340,7 +350,8 @@
+       jstring sourceFileName = NULL;
+       jint lineNum = -1;
+       
+-      getLineNumberForFrame(frame, finder, &sourceFileName, &lineNum);
++      getLineNumberForFrame(frame, finder, &sourceFileName, &lineNum, 
++			    &methodName);
+       
+       StackTraceElement *element = new StackTraceElement (sourceFileName, lineNum,
+         className, methodName, 0);
+diff -urN --exclude=.svn gcc_4_1_0_release/gcc/java/ChangeLog gcc-4_1-branch/gcc/java/ChangeLog
+--- gcc_4_1_0_release/gcc/java/ChangeLog	2006-03-03 03:29:00.164786464 +0100
++++ gcc-4_1-branch/gcc/java/ChangeLog	2006-03-16 21:32:06.321951176 +0100
+@@ -1,3 +1,14 @@
++2006-02-20  Andrew Haley  <aph@redhat.com>
++
++	* jcf-parse.c (parse_class_file): Set input_location from
++	current_class.
++
++2006-02-15  Andrew Haley  <aph@redhat.com>
++
++	* class.c (GEN_TABLE): Don't pushdecl *_SYMS_DECL here.
++	(make_class_data): pushdecl_top_level TYPE_OTABLE_SYMS_DECL,
++	TYPE_ATABLE_SYMS_DECL, TYPE_ITABLE_SYMS_DECL here.
++
+ 2006-02-28  Release Manager
+ 
+ 	* GCC 4.1.0 released.
+diff -urN --exclude=.svn gcc_4_1_0_release/gcc/java/class.c gcc-4_1-branch/gcc/java/class.c
+--- gcc_4_1_0_release/gcc/java/class.c	2005-12-13 12:05:08.162791000 +0100
++++ gcc-4_1-branch/gcc/java/class.c	2006-03-16 21:32:06.316951936 +0100
+@@ -375,7 +375,6 @@
+   TREE_STATIC (TYPE_## TABLE ##_SYMS_DECL (TYPE)) = 1;			\
+   TREE_CONSTANT (TYPE_## TABLE ##_SYMS_DECL (TYPE)) = 1;		\
+   DECL_IGNORED_P (TYPE_## TABLE ##_SYMS_DECL (TYPE)) = 1;		\
+-  pushdecl (TYPE_## TABLE ##_SYMS_DECL (TYPE));				\
+ }									\
+ while (0)
+ 
+@@ -1821,6 +1820,7 @@
+     }
+   else
+     {
++      pushdecl_top_level (TYPE_OTABLE_SYMS_DECL (type));
+       PUSH_FIELD_VALUE (cons, "otable",
+ 			build1 (ADDR_EXPR, otable_ptr_type, TYPE_OTABLE_DECL (type)));
+       PUSH_FIELD_VALUE (cons, "otable_syms",
+@@ -1836,6 +1836,7 @@
+     }
+   else
+     {
++      pushdecl_top_level (TYPE_ATABLE_SYMS_DECL (type));
+       PUSH_FIELD_VALUE (cons, "atable",
+ 			build1 (ADDR_EXPR, atable_ptr_type, TYPE_ATABLE_DECL (type)));
+       PUSH_FIELD_VALUE (cons, "atable_syms",
+@@ -1851,6 +1852,7 @@
+     }
+   else
+     {
++      pushdecl_top_level (TYPE_ITABLE_SYMS_DECL (type));
+       PUSH_FIELD_VALUE (cons, "itable",
+ 			build1 (ADDR_EXPR, itable_ptr_type, TYPE_ITABLE_DECL (type)));
+       PUSH_FIELD_VALUE (cons, "itable_syms",
+diff -urN --exclude=.svn gcc_4_1_0_release/gcc/java/jcf-parse.c gcc-4_1-branch/gcc/java/jcf-parse.c
+--- gcc_4_1_0_release/gcc/java/jcf-parse.c	2005-12-16 19:18:54.295517000 +0100
++++ gcc-4_1-branch/gcc/java/jcf-parse.c	2006-03-16 21:32:06.318951632 +0100
+@@ -901,7 +901,7 @@
+ 	  continue;
+ 	}
+ 
+-      input_location = file_start_location;
++      input_location = DECL_SOURCE_LOCATION (TYPE_NAME (current_class));
+       if (DECL_LINENUMBERS_OFFSET (method))
+ 	{
+ 	  int i;

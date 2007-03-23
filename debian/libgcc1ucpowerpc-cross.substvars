@@ -1,0 +1,1 @@
+shlibs:Depends=libuclibc0ucpowerpc-cross (>= 0.9.17-1)

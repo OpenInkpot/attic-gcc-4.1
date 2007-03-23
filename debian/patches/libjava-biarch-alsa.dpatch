@@ -1,0 +1,48 @@
+#! /bin/sh -e
+
+# DP: Fix linking with the correct biarch asound library
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}libjava && automake
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- libjava/classpath/native/jni/midi-alsa/Makefile.am~	2005-11-16 03:53:14.000000000 +0100
++++ libjava/classpath/native/jni/midi-alsa/Makefile.am	2005-11-16 10:39:54.650668352 +0100
+@@ -4,7 +4,7 @@
+ gnu_javax_sound_midi_alsa_AlsaPortDevice.c \
+ gnu_javax_sound_midi_alsa_AlsaMidiDeviceProvider.c
+ 
+-libgjsmalsa_la_LIBADD = -lasound
++libgjsmalsa_la_LIBADD = `case "$(CC)" in *-m64*) echo -L/usr/lib64;; *-m32*) echo -L/usr/lib32; esac` -lasound
+ 
+ AM_LDFLAGS = @CLASSPATH_MODULE@
+ AM_CPPFLAGS = @CLASSPATH_INCLUDES@ `pkg-config  --cflags-only-I alsa`
+--- libjava/classpath/native/jni/midi-alsa/Makefile.in~	2005-11-16 03:53:14.000000000 +0100
++++ libjava/classpath/native/jni/midi-alsa/Makefile.in	2005-11-16 10:40:11.359128280 +0100
+@@ -280,7 +280,7 @@
+ gnu_javax_sound_midi_alsa_AlsaPortDevice.c \
+ gnu_javax_sound_midi_alsa_AlsaMidiDeviceProvider.c
+ 
+-libgjsmalsa_la_LIBADD = -lasound
++libgjsmalsa_la_LIBADD = `case "$(CC)" in *-m64*) echo /usr/lib64/libasound.so;; *-m32*) echo /usr/lib32/libasound.so;; *) echo -lasound; esac`
+ AM_LDFLAGS = @CLASSPATH_MODULE@
+ AM_CPPFLAGS = @CLASSPATH_INCLUDES@ `pkg-config  --cflags-only-I alsa`
+ AM_CFLAGS = @WARNING_CFLAGS@ @STRICT_WARNING_CFLAGS@ @ERROR_CFLAGS@ `pkg-config --cflags-only-other alsa`

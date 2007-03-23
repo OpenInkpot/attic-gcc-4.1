@@ -1,0 +1,24 @@
+# configuration parameters taken from upstream source files
+VER		:= 4.1.0
+BASE_VERSION	:= 4.1
+SOURCE_VERSION	:= 4.1.0-slind0
+DEB_VERSION	:= 4.1.0-slind0
+DEB_EVERSION	:= 1:4.1.0-slind0
+GPC_BASE_VERSION	:= 2.1
+DEB_GPC_VERSION	:= 4.1.0-slind0
+DEB_SOVERSION	:= 4.1.0
+DEB_SOEVERSION	:= 1:4.1.0
+DEB_LIBGCC_SOVERSION	:= 1:4.1.0
+DEB_LIBGCC_VERSION	:= 1:4.1.0-slind0
+DEB_STDCXX_SOVERSION	:= 4.1.0
+DEB_FFI_SOVERSION	:= 4.1.0
+DEB_F2C_SOVERSION	:= 1:4.1.0-slind0
+GCC_SONAME	:= 1
+CXX_SONAME	:= 6
+F77_SONAME	:= 
+OBJC_SONAME	:= @VERSION@
+GCJ_SONAME	:= 7
+GNAT_VERSION	:= 4.1
+GNAT_SONAME	:= 4.1
+FFI_SONAME	:= 4
+LIBC_DEP		:= libc6-dev-arm-cross (>= 2.3.2.ds1-16)

@@ -1,0 +1,63 @@
+#! /bin/sh -e
+
+# DP: PR tree-optimization/26672 (ice-on-vaild-code, regression), gcc-4_1-branch
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+2006-03-14  Richard Guenther  <rguenther@suse.de>
+
+        PR tree-optimization/26672
+        * tree-ssa-propagate.c (set_rhs): Don't walk DEFs if not in
+        SSA form.
+
+2006-03-14  Richard Guenther  <rguenther@suse.de>
+
+	PR tree-optimization/26672
+	* gcc.dg/torture/pr26672.c: New testcase.
+
+Index: gcc/testsuite/gcc.dg/torture/pr26672.c
+===================================================================
+--- gcc/testsuite/gcc.dg/torture/pr26672.c	(revision 0)
++++ gcc/testsuite/gcc.dg/torture/pr26672.c	(revision 112051)
+@@ -0,0 +1,8 @@
++/* { dg-do compile } */
++
++int printf(const char *format, ...);
++extern const char help_string[];
++void app_opts(void) {
++    printf("%s", help_string);
++}
++const char help_string[] = "foo\n";
+Index: gcc/tree-ssa-propagate.c
+===================================================================
+--- gcc/tree-ssa-propagate.c	(revision 112050)
++++ gcc/tree-ssa-propagate.c	(revision 112051)
+@@ -625,7 +625,8 @@
+       *stmt_p = TREE_SIDE_EFFECTS (expr) ? expr : build_empty_stmt ();
+       (*stmt_p)->common.ann = (tree_ann_t) ann;
+ 
+-      if (TREE_SIDE_EFFECTS (expr))
++      if (in_ssa_p
++	  && TREE_SIDE_EFFECTS (expr))
+ 	{
+ 	  /* Fix all the SSA_NAMEs created by *STMT_P to point to its new
+ 	     replacement.  */

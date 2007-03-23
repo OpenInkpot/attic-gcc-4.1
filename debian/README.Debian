@@ -1,0 +1,174 @@
+		The Debian GNU Compiler Collection setup
+		========================================
+
+Please see the README.Debian in /usr/share/doc/gcc, contained in the
+gcc package for a description of the setup of the different compiler
+versions.
+
+
+Notes on GCC 3.4 in the sarge distribution
+------------------------------------------
+
+[package maintainers: when using GCC 3.4 for package building, please
+ check that your packages still work on platforms with GCC changes
+ specific for these platforms (hppa, m68k, mips, mipsel, sparc).       ]
+
+GCC 3.4 is included in sarge as a newer compiler version, the system
+compiler for sarge is GCC 3.3 (the transition to a newer system compiler
+is a post sarge issue).  Due to some incompatibilities between
+3.3 and 3.4 care should be taken, when some code built by both versions
+is linked together (most likely linking against a shared library found
+in Debian):
+
+- C++ code compiled by g++-3.3 and g++-3.4 is not compatible.  Applications
+  using C++ libraries have to make sure that these libraries are rebuilt.
+
+- On i386, the compiler is built as a biarch compiler (can generated code
+  for amd64). To use it, call gcc-3.4 -m64. Packages containing the 64bit
+  versions of libraries and library development files need to be installed
+  separately (i.e. lib64gcc1, amd64-libs, ...).
+  gcc-3.4 -m64 turns on the common subset for all x86-64 architectures,
+  specifying -march=k8 turns on k8/opteron specific features, -march=nocona
+  turns on some P4/64 Nocona specific features.
+
+- On hppa and m68k the exception handling changed from SJLJ to Dwarf2 based
+  exception handling. This affects C++ and code, which implements it's own
+  handling. If a library or binary ends up linked against libgcc1 _and_
+  libgcc2, something probably won't work.
+
+- The implementation of the MIPS ABIs has changed. As a result, the code
+  generated for certain MIPS targets will not be binary compatible with
+  earlier releases. See http://gcc.gnu.org/gcc-3.4/mips-abi.html
+
+- The implementation of the SPARC ABIs has changed. As a result, the code
+  generated will not be binary compatible with earlier releases in certain
+  cases. See http://gcc.gnu.org/gcc-3.4/sparc-abi.html
+
+Maintainers of these packages
+-----------------------------
+
+Matthias Klose <doko@debian.org>
+Ray Dassen <jdassen@debian.org>
+Jeff Bailey <jbailey@nisa.net>			(hurd-i386)
+Joel Baker <fenton@debian.org>			(netbsd-i386)
+Philip Blundell <pb@debian.org>			(arm-linux)
+Ben Collins <bcollins@debian.org>		(sparc-linux)
+Randolph Chung <tausq@debian.org>		(ia64-linux)
+Falk Hueffner <falk@debian.org>			(alpha-linux)
+Dan Jacobowitz <dan@debian.org>			(powerpc-linux)
+Thiemo Seufer <ica2_ts@csv.ica.uni-stuttgart.de>(mips*-linux)
+Ryan Murray <rmurray@cyberhqz.com>		(mips*-linux)
+Matt Taggart <taggart@carmen.fc.hp.com>		(hppa-linux)
+Gerhard Tonn <GerhardTonn@swol.de>		(s390-linux)
+Roman Zippel <zippel@linux-m68k.org>		(m68k-linux)
+Ludovic Brenta <ludovic.brenta@insalien.org>	(gnat)
+
+===============================================================================
+
+Patches that Debian applied in this version:
+
+pr26004:
+  PR middle-end/26004 (rejects-vaild-code, regression), gcc-4_1-branch
+
+pr26526:
+  Fix PR libstdc++/26526 (link failure when _GLIBCXX_DEBUG is defined).
+
+pr26557:
+  PR middle-end/26557 (ice-on-vaild-code, regression), gcc-4_1-branch
+
+pr26587:
+  Fix for PR tree-optimization/26587, taken from the 4.1 branch.
+
+pr26672:
+  PR tree-optimization/26672 (ice-on-vaild-code, regression), gcc-4_1-branch
+
+libjava-4.1.1:
+  libjava updates from gcc-4_1-branch until 20060318.
+
+libjava-update:
+  libjava awt & swing update, taken from trunk 2006-02-25
+
+gcc-version:
+  Add package identification to the gcc version string
+
+gcc-textdomain:
+  Set gettext's domain and textdomain to the versioned package name.
+
+rename-info-files:
+  Allow transformations on info file names. Reference the
+  transformed info file names in the texinfo files.
+
+libstdc++-pic:
+  Build and install libstdc++_pic.a library.
+
+libstdc++-doclink:
+  adjust hrefs to point to the local documentation
+
+gccbug:
+  Use sensible-editor instead of vi as fallback editor
+
+gccbug-posix:
+  Make gccbug POSIX compliant (patch by David Weinehall)
+  http://www.opengroup.org/onlinepubs/009695399/utilities/test.html
+
+boehm-gc-nocheck:
+  Disable running the boehm-gc testsuite. Hangs the buildd at least on hppa.
+
+fastjar-version:
+  Append GCC version to the fastjar version string.
+
+libstdc++-doxygen:
+  libstdc++ doxygen docs: Set SHORT_NAMES to YES
+
+classmap-path:
+  Set the location for gcj-dbtool's database to /var/lib/gcj-X.Y
+
+libjava-dlsearch-path:
+  Add /usr/lib/gcj-4.1 to the dlsearch path.
+
+libjava-stacktrace:
+  libgcj: Lookup source file name and line number in separated
+  debug files found in /usr/lib/debug
+
+libjava-hppa:
+  2006-03-14  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
+  
+  	* pa/pa32-linux.h (CRT_CALL_STATIC_FUNCTION): Fix typo.
+  
+  2006-03-13  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
+  
+  	* pa/pa32-linux.h (CRT_CALL_STATIC_FUNCTION): Define when CRTSTUFFS_O
+  	is defined.
+
+arm-libffi:
+  Add closure support to libffi for arm
+
+arm-gij:
+  Enable gij interpreter on arm
+
+cross-include:
+  Set cross include path to .../include, not .../sys-include
+  This should be a fix for famous limits.h issue
+
+link-libs:
+
+reporting:
+  Add Debian URL for bug reporting isntructions.
+
+cpu-default-i486:
+  set default 32bit ix86 architecture to i486
+
+reporting:
+  Add Debian URL for bug reporting isntructions.
+
+gcc-ice-hack:
+  2004-01-23  Jakub Jelinek  <jakub@redhat.com>
+  
+  	* system.h (ICE_EXIT_CODE): Define.
+  	* gcc.c (execute): Don't free first string early, but at the end
+  	of the function.  Call retry_ice if compiler exited with
+  	ICE_EXIT_CODE.
+  	(retry_ice): New function.
+  	* diagnostic.c (diagnostic_count_diagnostic,
+  	diagnostic_action_after_output, error_recursion): Exit with
+  	ICE_EXIT_CODE instead of FATAL_EXIT_CODE.

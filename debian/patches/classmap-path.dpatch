@@ -1,0 +1,80 @@
+#! /bin/sh -e
+
+# DP: Set the location for gcj-dbtool's database to /var/lib/gcj-X.Y
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        #cd ${dir}libjava && automake
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- src/libjava/Makefile.am~	2006-01-27 21:54:47.289049224 +0000
++++ src/libjava/Makefile.am	2006-01-27 22:10:27.015189136 +0000
+@@ -64,10 +64,11 @@
+ ## Where to install default logging property file.
+ propdir = $(libdir)
+ 
++short_version := $(shell echo $(gcc_version) | sed -r 's/([0-9]+\.[0-9]+).*/\1/')
+ ## Name of the default .db.
+ db_name = classmap.db
+ ## Compiler specific component of the .db file
+-db_pathtail = gcj-$(gcc_version)/$(db_name)
++db_pathtail = gcj-$(short_version)/$(db_name)
+ 
+ ## For now, only on native systems.  FIXME.
+ if NATIVE
+--- src/libjava/Makefile.in~	2006-01-27 21:54:47.321044360 +0000
++++ src/libjava/Makefile.in	2006-01-27 22:15:37.782945256 +0000
+@@ -655,8 +655,9 @@
+ @JAVA_HOME_SET_TRUE@BOOT_CLASS_PATH_DIR = $(JAVA_HOME)/lib/rt.jar
+ secdir = $(libdir)/security
+ propdir = $(libdir)
++short_version := $(shell echo $(gcc_version) | sed -r 's/([0-9]+\.[0-9]+).*/\1/')
+ db_name = classmap.db
+-db_pathtail = gcj-$(gcc_version)/$(db_name)
++db_pathtail = gcj-$(short_version)/$(db_name)
+ @NATIVE_TRUE@dbexec_DATA = $(db_name)
+ bin_SCRIPTS = addr2name.awk
+ GCJ_WITH_FLAGS = $(GCJ) --encoding=UTF-8 -Wno-deprecated
+--- src/libjava/configure.ac~	2006-01-27 21:54:47.839965472 +0000
++++ src/libjava/configure.ac	2006-01-27 22:13:59.470890960 +0000
+@@ -1268,8 +1268,8 @@
+ # Determine where the standard .db file is found.
+ multi_os_directory=`$CC -print-multi-os-directory`
+ case $multi_os_directory in
+-  .) dbexecdir='$(libdir)/gcj-$(gcc_version)' ;; # Avoid /.
+-  *) dbexecdir='$(libdir)/'$multi_os_directory'/gcj-$(gcc_version)' ;;
++  .) dbexecdir='$(libdir)/gcj-$(short_version)' ;; # Avoid /.
++  *) dbexecdir='$(libdir)/'$multi_os_directory'/gcj-$(short_version)' ;;
+ esac
+ AC_SUBST(dbexecdir)
+ 
+--- src/libjava/configure~	2006-01-27 21:54:51.646386808 +0000
++++ src/libjava/configure	2006-01-27 22:14:43.870141248 +0000
+@@ -14777,8 +14777,8 @@
+ # Determine where the standard .db file is found.
+ multi_os_directory=`$CC -print-multi-os-directory`
+ case $multi_os_directory in
+-  .) dbexecdir='$(libdir)/gcj-$(gcc_version)' ;; # Avoid /.
+-  *) dbexecdir='$(libdir)/'$multi_os_directory'/gcj-$(gcc_version)' ;;
++  .) dbexecdir='$(libdir)/gcj-$(short_version)' ;; # Avoid /.
++  *) dbexecdir='$(libdir)/'$multi_os_directory'/gcj-$(short_version)' ;;
+ esac
+ 
+ 
