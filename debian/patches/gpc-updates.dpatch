@@ -1,0 +1,296 @@
+#! /bin/sh -e
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- gcc/p/predef.def~	2006-02-14 08:14:19.000000000 +0100
++++ gcc/p/predef.def	2006-02-28 18:24:42.585086192 +0100
+@@ -33,6 +33,10 @@
+    The identifiers that are only attributes don't have separate
+    comments and are documented under `attribute'. */
+ 
++#if defined(noinline)
++#undef noinline
++#endif
++
+ PREDEF_ID (all,        GNU_PASCAL)          /* <export> extension (`export foo = all') */
+ PREDEF_ID (export,     E_O_PASCAL)          /* module interface export */
+ PREDEF_ID (ignorable,  GNU_PASCAL)
+--- gcc/tree.h.pp	2006-04-12 02:49:20.204667824 +0200
++++ gcc/tree.h	2006-04-12 02:49:23.218209696 +0200
+@@ -3781,6 +3781,7 @@
+ extern unsigned crc32_string (unsigned, const char *);
+ extern void clean_symbol_name (char *);
+ extern tree get_file_function_name_long (const char *);
++extern tree get_set_constructor_bytes (tree, unsigned char *, int);
+ extern tree get_callee_fndecl (tree);
+ extern void change_decl_assembler_name (tree, tree);
+ extern int type_num_arguments (tree);
+
+--- gcc/p/gpc.c.orig	2006-04-11 19:49:24.000000000 +0200
++++ gcc/p/gpc.c	2006-04-12 11:41:56.000000000 +0200
+@@ -629,6 +629,12 @@
+ 
+ static const char *if_exists_spec_function (int, const char **);
+ static const char *if_exists_else_spec_function (int, const char **);
++#ifdef GCC_4
++static const char *replace_outfile_spec_function (int, const char **);
++#endif
++#ifdef GCC_4_1
++static const char *version_compare_spec_function (int, const char **);
++#endif
+ 
+ /* The Specs Language
+ 
+@@ -1319,6 +1325,10 @@
+   {0, 0, 0}
+ };
+ 
++#ifdef GCC_4_1
++#include "regex.h"
++#endif
++
+ /* Number of elements in default_compilers, not counting the terminator.  */
+ 
+ static const int n_default_compilers = ARRAY_SIZE (default_compilers) - 1;
+@@ -1932,6 +1942,12 @@
+ {
+   { "if-exists",                if_exists_spec_function },
+   { "if-exists-else",           if_exists_else_spec_function },
++#ifdef GCC_4
++  { "replace-outfile",           replace_outfile_spec_function },
++#endif
++#ifdef GCC_4_1
++  { "version-compare",           version_compare_spec_function },
++#endif
+   { 0, 0 }
+ };
+ 
+@@ -8422,6 +8438,149 @@
+   return argv[1];
+ }
+ 
++#ifdef GCC_4
++/* replace-outfile built-in spec function.
++
++   This looks for the first argument in the outfiles array's name and
++   replaces it with the second argument.  */
++
++static const char *
++replace_outfile_spec_function (int argc, const char **argv)
++{
++  int i;
++  /* Must have exactly two arguments.  */
++  if (argc != 2)
++    abort ();
++
++  for (i = 0; i < n_infiles; i++)
++    {
++      if (outfiles[i] && !strcmp (outfiles[i], argv[0]))
++	outfiles[i] = xstrdup (argv[1]);
++    }
++  return NULL;
++}
++#endif
++
++#ifdef GCC_4_1
++/* Given two version numbers, compares the two numbers.
++   A version number must match the regular expression
++   ([1-9][0-9]*|0)(\.([1-9][0-9]*|0))*
++*/
++static int
++compare_version_strings (const char *v1, const char *v2)
++{
++  int rresult;
++  regex_t r;
++
++  if (regcomp (&r, "^([1-9][0-9]*|0)(\\.([1-9][0-9]*|0))*$",
++	       REG_EXTENDED | REG_NOSUB) != 0)
++    abort ();
++  rresult = regexec (&r, v1, 0, NULL, 0);
++  if (rresult == REG_NOMATCH)
++    fatal ("invalid version number `%s'", v1);
++  else if (rresult != 0)
++    abort ();
++  rresult = regexec (&r, v2, 0, NULL, 0);
++  if (rresult == REG_NOMATCH)
++    fatal ("invalid version number `%s'", v2);
++  else if (rresult != 0)
++    abort ();
++
++  return strverscmp (v1, v2);
++}
++
++
++/* version_compare built-in spec function.
++
++   This takes an argument of the following form:
++
++   <comparison-op> <arg1> [<arg2>] <switch> <result>
++
++   and produces "result" if the comparison evaluates to true,
++   and nothing if it doesn't.
++
++   The supported <comparison-op> values are:
++
++   >=  true if switch is a later (or same) version than arg1
++   !>  opposite of >=
++   <   true if switch is an earlier version than arg1
++   !<  opposite of <
++   ><  true if switch is arg1 or later, and earlier than arg2
++   <>  true if switch is earlier than arg1 or is arg2 or later
++
++   If the switch is not present, the condition is false unless
++   the first character of the <comparison-op> is '!'.
++
++   For example,
++   %:version-compare(>= 10.3 mmacosx-version-min= -lmx)
++   adds -lmx if -mmacosx-version-min=10.3.9 was passed.  */
++
++static const char *
++version_compare_spec_function (int argc, const char **argv)
++{
++  int comp1, comp2;
++  size_t switch_len;
++  const char *switch_value = NULL;
++  int nargs = 1, i;
++  bool result;
++
++  if (argc < 3)
++    fatal ("too few arguments to %%:version-compare");
++  if (argv[0][0] == '\0')
++    abort ();
++  if ((argv[0][1] == '<' || argv[0][1] == '>') && argv[0][0] != '!')
++    nargs = 2;
++  if (argc != nargs + 3)
++    fatal ("too many arguments to %%:version-compare");
++
++  switch_len = strlen (argv[nargs + 1]);
++  for (i = 0; i < n_switches; i++)
++    if (!strncmp (switches[i].part1, argv[nargs + 1], switch_len)
++	&& check_live_switch (i, switch_len))
++      switch_value = switches[i].part1 + switch_len;
++
++  if (switch_value == NULL)
++    comp1 = comp2 = -1;
++  else
++    {
++      comp1 = compare_version_strings (switch_value, argv[1]);
++      if (nargs == 2)
++	comp2 = compare_version_strings (switch_value, argv[2]);
++      else
++	comp2 = -1;  /* This value unused.  */
++    }
++
++  switch (argv[0][0] << 8 | argv[0][1])
++    {
++    case '>' << 8 | '=':
++      result = comp1 >= 0;
++      break;
++    case '!' << 8 | '<':
++      result = comp1 >= 0 || switch_value == NULL;
++      break;
++    case '<' << 8:
++      result = comp1 < 0;
++      break;
++    case '!' << 8 | '>':
++      result = comp1 < 0 || switch_value == NULL;
++      break;
++    case '>' << 8 | '<':
++      result = comp1 >= 0 && comp2 < 0;
++      break;
++    case '<' << 8 | '>':
++      result = comp1 < 0 || comp2 >= 0;
++      break;
++
++    default:
++      fatal ("unknown operator '%s' in %%:version-compare", argv[0]);
++    }
++  if (! result)
++    return NULL;
++
++  return argv[nargs + 2];
++}
++#endif
++
+ /* GPC specific code */
+ 
+ /* Delete the automake temp file (if present) and exit(). */
+--- gcc/p/rts/gpc.pas~	2006-03-06 16:31:29.000000000 +0100
++++ gcc/p/rts/gpc.pas	2006-06-05 13:40:32.116418992 +0200
+@@ -60,7 +60,7 @@
+   General Public License. }
+ 
+ {$gnu-pascal,I-}
+-{$if __GPC_RELEASE__ <> 20060215}
++{$if __GPC_RELEASE__ <> 20060325}
+ {$error
+ Trying to compile gpc.pas with a non-matching GPC version is likely
+ to cause problems.
+--- gcc/p/Make-lang.in.orig	2006-06-06 18:30:43.093386000 +0000
++++ gcc/p/Make-lang.in	2006-06-06 18:35:58.723386000 +0000
+@@ -559,8 +559,9 @@
+ 	$(srcdir)/p/script/extract-doc-demos -o p/docdemos $(srcdir)/p/doc/*.texi $(srcdir)/p/doc/generated/*.texi $(srcdir)/p/doc/en/*.texi
+ 	$(STAMP) "$@"
+ 
+-p/gpc.o: $(srcdir)/p/gpc.c $(CONFIG_H) multilib.h Makefile \
+- $(lang_specs_files) $(srcdir)/p/p-version.h specs.h
++p/gpc.o: $(srcdir)/p/gpc.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) intl.h multilib.h \
++    Makefile $(lang_specs_files) specs.h prefix.h $(GCC_H) $(FLAGS_H) \
++    configargs.h $(OBSTACK_H) opts.h $(srcdir)/p/p-version.h specs.h
+ 	$(CC) -DGPC $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(GPC_ALL_WARNINGS) $(INCLUDES) \
+ 	$(DRIVER_DEFINES) -c `echo $(srcdir)/p/gpc.c | sed 's,^\./,,'` -o $@
+ 
+@@ -584,17 +585,17 @@
+ 	help2man -N "$<" | sed -e s/@version@/$(gpc_version)/ > "$@" || { rm -f "$@"; false; }
+ 
+ # Headers and flags for GPC specific files.
+-GPC_GBE_H=$(CONFIG_H) system.h tree.h input.h rtl.h flags.h output.h expr.h \
+-          except.h function.h convert.h toplev.h $(GPC_GCC_VERSION_H)
++GPC_GBE_H=$(CONFIG_H) $(SYSTEM_H) $(TM_H) $(TREE_H) $(FLAGS_H) $(RTL_H) $(FLAGS_H) \
++          output.h $(EXPR_H) except.h convert.h toplev.h $(GPC_GCC_VERSION_H)
+ P_H=$(GPC_GBE_H) p/gpc.h p/plant.h p/p-tree.def p/predef.def \
+           $(srcdir)/p/parse.h p/gbe.h
+ ALL_GPC_FLAGS=$(ALL_CFLAGS) $(ALL_CPPFLAGS) $(GPC_ALL_WARNINGS) $(INCLUDES) \
+   -DGPC -DGPC_UNITS_DIR=\"$(unitsubdir)\" -I$(srcdir)/p
+ 
+ # Headers and flags for patched backend files.
+-GPC_BE_H=$(GPC_GBE_H) defaults.h machmode.h machmode.def real.h recog.h \
+-         regs.h reload.h typeclass.h xcoffout.h \
+-         insn-attr.h insn-codes.h insn-config.h insn-flags.h
++GPC_BE_H=$(GPC_GBE_H) defaults.h $(MACHMODE_H) real.h $(RECOG_H) \
++         $(REGS_H) reload.h typeclass.h xcoffout.h \
++         $(INSN_ATTR_H) insn-codes.h insn-config.h insn-flags.h
+ ALL_GPC_GBE_FLAGS=$(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) -DGPC
+ 
+ p/gpcpp.o: p/gpcpp.c p/p-version.h p/gpc-options.h p/lang-options.h \
+@@ -723,7 +724,10 @@
+ p/stor-layout.o: stor-layout.c $(GPC_BE_H)
+ 	$(CC) -o $@ -c $(ALL_GPC_GBE_FLAGS) $<
+ 
+-p/toplev.o: toplev.c $(GPC_BE_H) p/lang-options.h
++p/toplev.o: toplev.c $(GPC_BE_H) p/lang-options.h $(COVERAGE_H) \
++   $(DIAGNOSTIC_H) $(BASIC_BLOCK_H) $(TIMEVAR_H) $(PARAMS_H) $(TM_P_H) \
++   $(TARGET_H) $(CFGLAYOUT_H) $(CFGLOOP_H) $(CGRAPH_H) $(GGC_H) \
++   $(INTEGRATE_H) $(CPPLIB_H) opts.h params.def
+ 	$(CC) -o $@ -c $(ALL_GPC_GBE_FLAGS) $(MAYBE_TARGET_DEFAULT) \
+ 	  $(MAYBE_USE_COLLECT2) -DTARGET_NAME=\"$(target_alias)\" $<
+ 

@@ -1,0 +1,177 @@
+#! /bin/sh -e
+
+# DP: document gcjh
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+--- libjava/classpath/doc/Makefile.am~	2007-03-06 22:29:13.000000000 +0100
++++ libjava/classpath/doc/Makefile.am	2007-03-06 22:58:05.000000000 +0100
+@@ -19,6 +19,7 @@
+ 	gjar.1 \
+ 	gjarsigner.1 \
+ 	gjavah.1 \
++	gcjh.1 \
+ 	gkeytool.1 \
+ 	gnative2ascii.1 \
+ 	gorbd.1 \
+@@ -51,7 +52,7 @@
+ 
+ .INTERMEDIATE: gappletviewer.pod gjarsigner.pod gjar.pod gjavah.pod \
+ 	gkeytool.pod gnative2ascii.pod gorbd.pod grmid.pod grmiregistry.pod \
+-	gserialver.pod gtnameserv.pod
++	gserialver.pod gtnameserv.pod gcjh.pod
+ 
+ gappletviewer.pod: $(srcdir)/cp-tools.texinfo
+ 	-$(TEXI2POD) -D gappletviewer < $< > $@
+@@ -62,6 +63,9 @@
+ gjar.pod: $(srcdir)/cp-tools.texinfo
+ 	-$(TEXI2POD) -D gjar < $< > $@
+ 
++gcjh.pod: $(srcdir)/cp-tools.texinfo
++	-$(TEXI2POD) -D gcjh < $< > $@
++
+ gjavah.pod: $(srcdir)/cp-tools.texinfo
+ 	-$(TEXI2POD) -D gjavah < $< > $@
+ 
+--- libjava/classpath/doc/Makefile.in~	2007-03-06 22:34:13.000000000 +0100
++++ libjava/classpath/doc/Makefile.in	2007-03-06 22:59:01.000000000 +0100
+@@ -307,6 +307,7 @@
+ 	gjar.1 \
+ 	gjarsigner.1 \
+ 	gjavah.1 \
++	gcjh.1 \
+ 	gkeytool.1 \
+ 	gnative2ascii.1 \
+ 	gorbd.1 \
+@@ -705,7 +706,7 @@
+ 
+ .INTERMEDIATE: gappletviewer.pod gjarsigner.pod gjar.pod gjavah.pod \
+ 	gkeytool.pod gnative2ascii.pod gorbd.pod grmid.pod grmiregistry.pod \
+-	gserialver.pod gtnameserv.pod
++	gserialver.pod gtnameserv.pod gcjh.pod
+ 
+ gappletviewer.pod: $(srcdir)/cp-tools.texinfo
+ 	-$(TEXI2POD) -D gappletviewer < $< > $@
+@@ -716,6 +717,9 @@
+ gjar.pod: $(srcdir)/cp-tools.texinfo
+ 	-$(TEXI2POD) -D gjar < $< > $@
+ 
++gcjh.pod: $(srcdir)/cp-tools.texinfo
++	-$(TEXI2POD) -D gcjh < $< > $@
++
+ gjavah.pod: $(srcdir)/cp-tools.texinfo
+ 	-$(TEXI2POD) -D gjavah < $< > $@
+ 
+--- libjava/classpath/doc/cp-tools.texinfo~	2007-03-06 22:22:56.000000000 +0100
++++ libjava/classpath/doc/cp-tools.texinfo	2007-03-06 22:57:01.000000000 +0100
+@@ -127,6 +127,7 @@
+ 
+ * jar Tool::                   Archive tool for Java archives
+ * javah Tool::                 A java header compiler
++* gcjh Tool::                  A java header compiler (old version)
+ * native2ascii Tool::          An encoding converter
+ * orbd Tool::                  An object request broker daemon
+ * serialver Tool::             A serial version command
+@@ -1215,12 +1216,13 @@
+ @chapter Other Tools
+ 
+ This is a list of currently undocumented classpath tools: @b{jar},
+-@b{javah}, @b{native2ascii}, @b{orbd}, @b{serialver}, @b{rmid}, @b{rmiregistry}
++@b{javah}, @b{gcjh}, @b{native2ascii}, @b{orbd}, @b{serialver}, @b{rmid}, @b{rmiregistry}
+ and @b{tnameserv}.
+ 
+ @menu
+ * jar Tool::                   Archive tool for Java archives
+ * javah Tool::                 A java header compiler
++* gcjh Tool::                  A java header compiler (old version)
+ * native2ascii Tool::          An encoding converter
+ * orbd Tool::                  An object request broker daemon
+ * serialver Tool::             A serial version command
+@@ -1407,7 +1409,66 @@
+ 
+ @comment ----------------------------------------------------------------------
+ 
+-@node native2ascii Tool, orbd Tool, javah Tool, Other Tools
++@node gcjh Tool, native2ascii Tool, gjavah Tool, Other Tools
++@comment node-name, next, previous, up
++@section The @command{gcjh} Tool
++@c man title gcjh - generate header files from Java class files
++
++@c man begin DESCRIPTION gcjh
++
++To be written @dots{}
++
++@c man end
++
++@ignore
++@c man begin SYNOPSIS gcjh
++gcjh [@var{OPTIONS}]@dots{} @var{CLASS}@dots{}
++@c man end
++@end ignore
++
++@c man begin OPTIONS gcjh
++
++CNI text options
++@table @gcctabopt
++@item -add @var{text}
++Insert @var{text} into class body.
++@item -append @var{text}
++Append @var{text} after class declaration.
++@item -friend @var{text}
++Insert @var{text} as a @code{friend} declaration.
++@item -prepend @var{text}
++Insert @var{text} before start of class.
++@end table
++
++Compatibility options (unused)
++@table @gcctabopt
++@item -td @var{DIR}
++@itemx -M
++@itemx -MM
++@itemx -MD
++@itemx -MMD
++Unused compatibility option.
++@end table
++
++
++Standard options:
++@table @gcctabopt
++@item -help
++Print help text, then exit.
++@item -version
++Print version number, then exit.
++@item -J@var{OPTION}
++Pass argument to the Java runtime.
++@end table
++@c man end
++
++@c man begin SEEALSO gcjh
++javac(1), javah(1), @dots{}
++@c man end
++
++@comment ----------------------------------------------------------------------
++
++@node native2ascii Tool, orbd Tool, gcjh Tool, Other Tools
+ @comment node-name, next, previous, up
+ @section The @command{native2ascii} Tool
+ @c man title gnative2ascii - An encoding converter

@@ -1,0 +1,3739 @@
+#! /bin/sh -e
+
+# DP: Apply the libjava/net backport from the redhat/gcc-4_1-branch.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        cd ${dir}libjava && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        rm -f ${dir}libjava/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+
+2006-11-03  Gary Benson  <gbenson@redhat.com>
+
+	* java/net/Inet4Address.java
+	(FAMILY): Renamed to AF_INET.
+	(<init>, writeReplace): Reflect the above.
+	* java/net/Inet6Address.java
+	(FAMILY): Renamed to AF_INET6.
+	(<init>): Reflect the above.	
+
+2006-10-05  Gary Benson  <gbenson@redhat.com>
+
+	* java/net/SocketPermission.java
+	(processHostport): Cope with IPv6 addresses with a
+	one-digit first component.
+
+2006-09-20  Gary Benson  <gbenson@redhat.com>
+
+	* java/net/InetAddress.java: Updated to latest.
+	* java/net/Inet4Address.java: Likewise.
+	* java/net/Inet6Address.java: Likewise.
+	* java/net/ResolverCache.java: Likewise.
+	* java/net/SocketPermission.java: Likewise.
+
+	* java/net/Inet4Address.java
+	(AF_INET): Renamed to FAMILY.
+	(<init>, writeReplace): Reflect the above.
+	* java/net/Inet6Address.java
+	(AF_INET6): Renamed to FAMILY.
+	(<init>): Reflect the above.
+
+2006-09-05  Gary Benson  <gbenson@redhat.com>
+
+	* java/net/SocketPermission.java
+	(maybeBracketIPv6Address): Renamed to processHostport.
+	(processHostport): Also translate "" to "localhost".
+	(setHostPort): Remove special cases for empty hostport and for
+	extra colons in hostport (processHostport handles these now).
+	
+2006-08-29  Gary Benson  <gbenson@redhat.com>
+
+	* java/net/SocketPermission.java
+	(maybeBracketIPv6Address): New method.
+	(<init>): Pass the hostport argument through the above.
+
+
+Index: libjava/Makefile.in
+===================================================================
+--- libjava/Makefile.in	(Revision 118579)
++++ libjava/Makefile.in	(Revision 118580)
+@@ -93,7 +93,7 @@
+ 	$(top_builddir)/gcj/libgcj-config.h
+ CONFIG_CLEAN_FILES = libgcj.pc libgcj.spec libgcj-test.spec \
+ 	scripts/jar java/io/natFile.cc java/lang/ConcreteProcess.java \
+-	java/lang/natConcreteProcess.cc java/net/natInetAddress.cc \
++	java/lang/natConcreteProcess.cc java/net/natVMInetAddress.cc \
+ 	java/net/natVMNetworkInterface.cc \
+ 	gnu/java/net/natPlainSocketImpl.cc \
+ 	gnu/java/net/natPlainDatagramSocketImpl.cc \
+@@ -299,7 +299,7 @@
+ 	java/lang/ref/natReference.cc java/lang/reflect/natArray.cc \
+ 	java/lang/reflect/natConstructor.cc \
+ 	java/lang/reflect/natField.cc java/lang/reflect/natMethod.cc \
+-	java/net/natVMNetworkInterface.cc java/net/natInetAddress.cc \
++	java/net/natVMNetworkInterface.cc java/net/natVMInetAddress.cc \
+ 	java/net/natURLClassLoader.cc \
+ 	java/nio/channels/natVMChannels.cc \
+ 	java/nio/natDirectByteBufferImpl.cc \
+@@ -347,7 +347,7 @@
+ 	java/lang/ref/natReference.lo java/lang/reflect/natArray.lo \
+ 	java/lang/reflect/natConstructor.lo \
+ 	java/lang/reflect/natField.lo java/lang/reflect/natMethod.lo \
+-	java/net/natVMNetworkInterface.lo java/net/natInetAddress.lo \
++	java/net/natVMNetworkInterface.lo java/net/natVMInetAddress.lo \
+ 	java/net/natURLClassLoader.lo \
+ 	java/nio/channels/natVMChannels.lo \
+ 	java/nio/natDirectByteBufferImpl.lo \
+@@ -4127,7 +4127,7 @@
+ classpath/java/net/HttpURLConnection.java \
+ classpath/java/net/Inet4Address.java \
+ classpath/java/net/Inet6Address.java \
+-java/net/InetAddress.java \
++classpath/java/net/InetAddress.java \
+ classpath/java/net/InetSocketAddress.java \
+ classpath/java/net/JarURLConnection.java \
+ classpath/java/net/MalformedURLException.java \
+@@ -4139,6 +4139,7 @@
+ classpath/java/net/PasswordAuthentication.java \
+ classpath/java/net/PortUnreachableException.java \
+ classpath/java/net/ProtocolException.java \
++classpath/java/net/ResolverCache.java \
+ classpath/java/net/ServerSocket.java \
+ classpath/java/net/Socket.java \
+ classpath/java/net/SocketAddress.java \
+@@ -4159,6 +4160,7 @@
+ classpath/java/net/URLStreamHandlerFactory.java \
+ classpath/java/net/UnknownHostException.java \
+ classpath/java/net/UnknownServiceException.java \
++java/net/VMInetAddress.java \
+ java/net/VMNetworkInterface.java \
+ java/net/VMURLConnection.java
+ 
+@@ -7424,7 +7426,7 @@
+ java/lang/reflect/natField.cc \
+ java/lang/reflect/natMethod.cc \
+ java/net/natVMNetworkInterface.cc \
+-java/net/natInetAddress.cc \
++java/net/natVMInetAddress.cc \
+ java/net/natURLClassLoader.cc \
+ java/nio/channels/natVMChannels.cc \
+ java/nio/natDirectByteBufferImpl.cc \
+@@ -7916,7 +7918,7 @@
+ 	@: > java/net/$(DEPDIR)/$(am__dirstamp)
+ java/net/natVMNetworkInterface.lo: java/net/$(am__dirstamp) \
+ 	java/net/$(DEPDIR)/$(am__dirstamp)
+-java/net/natInetAddress.lo: java/net/$(am__dirstamp) \
++java/net/natVMInetAddress.lo: java/net/$(am__dirstamp) \
+ 	java/net/$(DEPDIR)/$(am__dirstamp)
+ java/net/natURLClassLoader.lo: java/net/$(am__dirstamp) \
+ 	java/net/$(DEPDIR)/$(am__dirstamp)
+@@ -8248,10 +8250,10 @@
+ 	-rm -f java/lang/reflect/natField.lo
+ 	-rm -f java/lang/reflect/natMethod.$(OBJEXT)
+ 	-rm -f java/lang/reflect/natMethod.lo
+-	-rm -f java/net/natInetAddress.$(OBJEXT)
+-	-rm -f java/net/natInetAddress.lo
+ 	-rm -f java/net/natURLClassLoader.$(OBJEXT)
+ 	-rm -f java/net/natURLClassLoader.lo
++	-rm -f java/net/natVMInetAddress.$(OBJEXT)
++	-rm -f java/net/natVMInetAddress.lo
+ 	-rm -f java/net/natVMNetworkInterface.$(OBJEXT)
+ 	-rm -f java/net/natVMNetworkInterface.lo
+ 	-rm -f java/nio/channels/natVMChannels.$(OBJEXT)
+@@ -8379,8 +8381,8 @@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/lang/reflect/$(DEPDIR)/natConstructor.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/lang/reflect/$(DEPDIR)/natField.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/lang/reflect/$(DEPDIR)/natMethod.Plo@am__quote@
+-@AMDEP_TRUE@@am__include@ @am__quote@java/net/$(DEPDIR)/natInetAddress.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/net/$(DEPDIR)/natURLClassLoader.Plo@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@java/net/$(DEPDIR)/natVMInetAddress.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/net/$(DEPDIR)/natVMNetworkInterface.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/nio/$(DEPDIR)/natDirectByteBufferImpl.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@java/nio/channels/$(DEPDIR)/natVMChannels.Plo@am__quote@
+Index: libjava/configure.ac
+===================================================================
+--- libjava/configure.ac	(Revision 118579)
++++ libjava/configure.ac	(Revision 118580)
+@@ -665,7 +665,7 @@
+ 
+ # Likewise for natInetAddress.cc and natVMNetworkInterface.cc.
+ test -d java/net || mkdir java/net
+-AC_CONFIG_LINKS(java/net/natInetAddress.cc:java/net/natInetAddress${PLATFORMNET}.cc)
++AC_CONFIG_LINKS(java/net/natVMInetAddress.cc:java/net/natVMInetAddress${PLATFORMNET}.cc)
+ AC_CONFIG_LINKS(java/net/natVMNetworkInterface.cc:java/net/natVMNetworkInterface${PLATFORMNET}.cc)
+ 
+ # Likewise for natPlainSocketImpl.cc and natPlainDatagramSocketImpl.cc.
+Index: libjava/classpath/java/net/InetAddress.java
+===================================================================
+--- libjava/classpath/java/net/InetAddress.java	(Revision 118579)
++++ libjava/classpath/java/net/InetAddress.java	(Revision 118580)
+@@ -1,5 +1,6 @@
+ /* InetAddress.java -- Class to model an Internet address
+-   Copyright (C) 1998, 1999, 2002, 2004, 2005  Free Software Foundation, Inc.
++   Copyright (C) 1998, 1999, 2002, 2004, 2005, 2006
++   Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -43,7 +44,6 @@
+ import java.io.ObjectOutputStream;
+ import java.io.ObjectStreamException;
+ import java.io.Serializable;
+-import java.util.StringTokenizer;
+ 
+ /**
+  * This class models an Internet address.  It does not have a public
+@@ -57,6 +57,7 @@
+  *
+  * @author Aaron M. Renn (arenn@urbanophile.com)
+  * @author Per Bothner
++ * @author Gary Benson (gbenson@redhat.com)
+  *
+  * @specnote This class is not final since JK 1.4
+  */
+@@ -65,37 +66,47 @@
+   private static final long serialVersionUID = 3286316764910316507L;
+ 
+   /**
+-   * The special IP address INADDR_ANY.
+-   */
+-  private static InetAddress inaddr_any;
+-
+-  /**
+    * Dummy InetAddress, used to bind socket to any (all) network interfaces.
+    */
+   static InetAddress ANY_IF;
+-
++  static
++  {
++    byte[] addr;
++    try
++      {
++	addr = VMInetAddress.lookupInaddrAny();
++      }
++    catch (UnknownHostException e)
++      {
++	// Make one up and hope it works.
++	addr = new byte[] {0, 0, 0, 0};
++      }
++    try
++      {
++	ANY_IF = getByAddress(addr);
++      }
++    catch (UnknownHostException e)
++      {
++	throw new RuntimeException("should never happen", e);
++      }
++    ANY_IF.hostName = ANY_IF.getHostName();
++  }
++  
+   /**
+    * Stores static localhost address object.
+    */
+   static InetAddress LOCALHOST;
+-
+   static
+   {
+-    // precompute the ANY_IF address
+     try
+       {
+-        ANY_IF = getInaddrAny();
+-
+-	byte[] ip_localhost = { 127, 0, 0, 1 };
+-	LOCALHOST = new Inet4Address(ip_localhost, "localhost");
++	LOCALHOST = getByAddress("localhost", new byte[] {127, 0, 0, 1});
+       }
+-    catch (UnknownHostException uhe)
++    catch (UnknownHostException e)
+       {
+-        // Hmmm, make one up and hope that it works.
+-        byte[] zeros = { 0, 0, 0, 0 };
+-        ANY_IF = new Inet4Address(zeros, "0.0.0.0");
++	throw new RuntimeException("should never happen", e);
+       }
+-  }
++  }    
+ 
+   /**
+    * The Serialized Form specifies that an int 'address' is saved/restored.
+@@ -115,28 +126,28 @@
+   String hostName;
+ 
+   /**
+-   * The field 'family' seems to be the AF_ value.
+-   * FIXME: Much of the code in the other java.net classes does not make
+-   * use of this family field.  A better implementation would be to make
+-   * use of getaddrinfo() and have other methods just check the family
+-   * field rather than examining the length of the address each time.
++   * Needed for serialization.
+    */
+-  int family;
++  private int family;
+ 
+   /**
+-   * Initializes this object's addr instance variable from the passed in
+-   * byte array.  Note that this constructor is protected and is called
+-   * only by static methods in this class.
++   * Constructor.  Prior to the introduction of IPv6 support in 1.4,
++   * methods such as InetAddress.getByName() would return InetAddress
++   * objects.  From 1.4 such methods returned either Inet4Address or
++   * Inet6Address objects, but for compatibility Inet4Address objects
++   * are serialized as InetAddresses.  As such, there are only two
++   * places where it is appropriate to invoke this constructor: within
++   * subclasses constructors and within Inet4Address.writeReplace().
+    *
+    * @param ipaddr The IP number of this address as an array of bytes
+    * @param hostname The hostname of this IP address.
++   * @param family The address family of this IP address.
+    */
+-  InetAddress(byte[] ipaddr, String hostname)
++  InetAddress(byte[] ipaddr, String hostname, int family)
+   {
+     addr = (null == ipaddr) ? null : (byte[]) ipaddr.clone();
+     hostName = hostname;
+-    
+-    family = 2; /* AF_INET */
++    this.family = family;
+   }
+ 
+   /**
+@@ -144,150 +155,144 @@
+    * An address is multicast if the high four bits are "1110".  These are
+    * also known as "Class D" addresses.
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @return true if mulitcast, false if not
+    *
+    * @since 1.1
+    */
+   public boolean isMulticastAddress()
+   {
+-    // Mask against high order bits of 1110
+-    if (addr.length == 4)
+-      return (addr[0] & 0xf0) == 0xe0;
+-
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if the InetAddress in a wildcard address
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isAnyLocalAddress()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    return equals(ANY_IF);
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if the InetAddress is a loopback address
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isLoopbackAddress()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    return (addr[0] & 0xff) == 0x7f;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a link local address
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isLinkLocalAddress()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a site local address
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isSiteLocalAddress()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-
+-    // 10.0.0.0/8
+-    if ((addr[0] & 0xff) == 0x0a)
+-      return true;
+-
+-    // 172.16.0.0/12
+-    if ((addr[0] & 0xff) == 0xac && (addr[1] & 0xf0) == 0x10)
+-      return true;
+-
+-    // 192.168.0.0/16
+-    if ((addr[0] & 0xff) == 0xc0 && (addr[1] & 0xff) == 0xa8)
+-      return true;
+-
+-    // XXX: Do we need to check more addresses here ?
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a global multicast address
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isMCGlobal()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a node local multicast address.
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isMCNodeLocal()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a link local multicast address.
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isMCLinkLocal()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    if (! isMulticastAddress())
+-      return false;
+-
+-    return ((addr[0] & 0xff) == 0xe0
+-	    && (addr[1] & 0xff)  == 0x00
+-	    && (addr[2] & 0xff)  == 0x00);
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a site local multicast address.
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isMCSiteLocal()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+    * Utility routine to check if InetAddress is a organization local
+    * multicast address.
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @since 1.4
+    */
+   public boolean isMCOrgLocal()
+   {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+@@ -298,13 +303,20 @@
+    */
+   public String getHostName()
+   {
+-    if (hostName != null)
+-      return hostName;
++    if (hostName == null)
++      hostName = getCanonicalHostName();
+ 
++    return hostName;
++  }
++
++  /**
++   * Returns the canonical hostname represented by this InetAddress
++   */
++  String internalGetCanonicalHostName()
++  {
+     try
+       {
+-	hostName = VMInetAddress.getHostByAddr(addr);
+-	return hostName;
++	return ResolverCache.getHostByAddr(addr);
+       }
+     catch (UnknownHostException e)
+       {
+@@ -319,12 +331,14 @@
+    */
+   public String getCanonicalHostName()
+   {
++    String hostname = internalGetCanonicalHostName();
++
+     SecurityManager sm = System.getSecurityManager();
+     if (sm != null)
+       {
+         try
+ 	  {
+-            sm.checkConnect(hostName, -1);
++            sm.checkConnect(hostname, -1);
+ 	  }
+ 	catch (SecurityException e)
+ 	  {
+@@ -332,16 +346,7 @@
+ 	  }
+       }
+ 
+-    // Try to find the FDQN now
+-    InetAddress address;
+-    byte[] ipaddr = getAddress();
+-
+-    if (ipaddr.length == 16)
+-      address = new Inet6Address(getAddress(), null);
+-    else
+-      address = new Inet4Address(getAddress(), null);
+-
+-    return address.getHostName();
++    return hostname;
+   }
+ 
+   /**
+@@ -357,32 +362,19 @@
+   }
+ 
+   /**
+-   * Returns the IP address of this object as a String.  The address is in
+-   * the dotted octet notation, for example, "127.0.0.1".
++   * Returns the IP address of this object as a String.
+    *
++   * <p>This method cannot be abstract for backward compatibility reasons. By
++   * default it always throws {@link UnsupportedOperationException} unless
++   * overridden.</p>
++   * 
+    * @return The IP address of this object in String form
+    *
+    * @since 1.0.2
+    */
+   public String getHostAddress()
+   {
+-    StringBuffer sb = new StringBuffer(40);
+-
+-    int len = addr.length;
+-    int i = 0;
+-    
+-    for ( ; ; )
+-      {
+-        sb.append(addr[i] & 0xff);
+-        i++;
+-	
+-        if (i == len)
+-          break;
+-	
+-        sb.append('.');
+-      }
+-
+-    return sb.toString();
++    throw new UnsupportedOperationException();
+   }
+ 
+   /**
+@@ -488,48 +480,50 @@
+       return new Inet4Address(addr, host);
+ 
+     if (addr.length == 16)
+-      return new Inet6Address(addr, host);
++      {
++	for (int i = 0; i < 12; i++)
++	  {
++	    if (addr[i] != (i < 10 ? 0 : (byte) 0xFF))
++	      return new Inet6Address(addr, host);
++	  }
++	  
++	byte[] ip4addr = new byte[4];
++	ip4addr[0] = addr[12];
++	ip4addr[1] = addr[13];
++	ip4addr[2] = addr[14];
++	ip4addr[3] = addr[15];
++	return new Inet4Address(ip4addr, host);
++      }
+ 
+     throw new UnknownHostException("IP address has illegal length");
+   }
+ 
+   /**
+-   * If hostname is a valid numeric IP address, return the numeric address.
+-   * Otherwise, return null.
++   * Returns an InetAddress object representing the IP address of
++   * the given literal IP address in dotted decimal format such as
++   * "127.0.0.1".  This is used by SocketPermission.setHostPort()
++   * to parse literal IP addresses without performing a DNS lookup.
+    *
+-   * @param hostname the name of the host
++   * @param literal The literal IP address to create the InetAddress
++   * object from
++   *
++   * @return The address of the host as an InetAddress object, or
++   * null if the IP address is invalid.
+    */
+-  private static byte[] aton(String hostname)
++  static InetAddress getByLiteral(String literal)
+   {
+-    StringTokenizer st = new StringTokenizer(hostname, ".");
+-
+-    if (st.countTokens() == 4)
++    byte[] address = VMInetAddress.aton(literal);
++    if (address == null)
++      return null;
++    
++    try
+       {
+-	int index;
+-	byte[] address = new byte[4];
+-
+-	for (index = 0; index < 4; index++)
+-	  {
+-	    try
+-	      {
+-		short n = Short.parseShort(st.nextToken());
+-
+-		if ((n < 0) || (n > 255))
+-		  break;
+-
+-		address[index] = (byte) n;
+-	      }
+-	    catch (NumberFormatException e)
+-	      {
+-		break;
+-	      }
+-	  }
+-
+-	if (index == 4)
+-	  return address;
++	return getByAddress(address);
+       }
+-
+-    return null;
++    catch (UnknownHostException e)
++      {
++	throw new RuntimeException("should never happen", e);
++      }
+   }
+ 
+   /**
+@@ -577,63 +571,34 @@
+   public static InetAddress[] getAllByName(String hostname)
+     throws UnknownHostException
+   {
+-    SecurityManager s = System.getSecurityManager();
+-    if (s != null)
+-      s.checkConnect(hostname, -1);
++    // If null or the empty string is supplied, the loopback address
++    // is returned.
++    if (hostname == null || hostname.length() == 0)
++      return new InetAddress[] {LOCALHOST};
+ 
+-    InetAddress[] addresses;
++    // Check if hostname is an IP address
++    InetAddress address = getByLiteral(hostname);
++    if (address != null)
++      return new InetAddress[] {address};
+ 
+-    if (hostname != null)
+-      hostname = hostname.trim();
++    // Perform security check before resolving
++    SecurityManager sm = System.getSecurityManager();
++    if (sm != null)
++      sm.checkConnect(hostname, -1);
+ 
+-    // Default to current host if necessary
+-    if (hostname == null || hostname.equals(""))
+-      {
+-	addresses = new InetAddress[1];
+-	addresses[0] = LOCALHOST;
+-	return addresses;
+-      }
+-
+-    // Not in cache, try the lookup
+-    byte[][] iplist = VMInetAddress.getHostByName(hostname);
+-
++    // Resolve the hostname
++    byte[][] iplist = ResolverCache.getHostByName(hostname);
+     if (iplist.length == 0)
+       throw new UnknownHostException(hostname);
+ 
+-    addresses = new InetAddress[iplist.length];
+-
++    InetAddress[] addresses = new InetAddress[iplist.length];
+     for (int i = 0; i < iplist.length; i++)
+-      {
+-	if (iplist[i].length != 4)
+-	  throw new UnknownHostException(hostname);
++      addresses[i] = getByAddress(hostname, iplist[i]);
+ 
+-	addresses[i] = new Inet4Address(iplist[i], hostname);
+-      }
+-
+     return addresses;
+   }
+ 
+   /**
+-   * Returns the special address INADDR_ANY used for binding to a local
+-   * port on all IP addresses hosted by a the local host.
+-   *
+-   * @return An InetAddress object representing INDADDR_ANY
+-   *
+-   * @exception UnknownHostException If an error occurs
+-   */
+-  static InetAddress getInaddrAny() throws UnknownHostException
+-  {
+-    if (inaddr_any == null)
+-      {
+-	byte[] tmp = VMInetAddress.lookupInaddrAny();
+-	inaddr_any = new Inet4Address(tmp, null);
+-	inaddr_any.hostName = inaddr_any.getHostName();
+-      }
+-
+-    return inaddr_any;
+-  }
+-
+-  /**
+    * Returns an InetAddress object representing the address of the current
+    * host.
+    *
+@@ -645,11 +610,19 @@
+   public static InetAddress getLocalHost() throws UnknownHostException
+   {
+     String hostname = VMInetAddress.getLocalHostname();
+-    return getByName(hostname);
++    try
++      {
++	return getByName(hostname);
++      }
++    catch (SecurityException e)
++      {
++	return LOCALHOST;
++      }
+   }
+ 
+-  /*
+-   * Needed for serialization
++  /**
++   * Inet4Address objects are serialized as InetAddress objects.
++   * This deserializes them back into Inet4Address objects.
+    */
+   private Object readResolve() throws ObjectStreamException
+   {
+@@ -665,8 +638,6 @@
+ 
+     for (int i = 2; i >= 0; --i)
+       addr[i] = (byte) (address >>= 8);
+-
+-    family = 2; /* AF_INET  */
+   }
+ 
+   private void writeObject(ObjectOutputStream oos) throws IOException
+Index: libjava/classpath/java/net/ResolverCache.java
+===================================================================
+--- libjava/classpath/java/net/ResolverCache.java	(Revision 0)
++++ libjava/classpath/java/net/ResolverCache.java	(Revision 118580)
+@@ -0,0 +1,269 @@
++/* ResolverCache.java -- A cache of resolver lookups for InetAddress.
++   Copyright (C) 2006 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++
++package java.net;
++
++import java.security.Security;
++import java.util.HashMap;
++import java.util.Iterator;
++import java.util.LinkedList;
++
++/**
++ * This class provides a cache of name service resolutions.  By
++ * default successful resolutions are cached forever to guard
++ * against DNS spoofing attacks and failed resolutions are cached
++ * for 10 seconds to improve performance.  The length of time that
++ * results remain in the cache is determined by the following
++ * security properties:
++ * <dl>
++ *   <dt><code>networkaddress.cache.ttl</code></dt>
++ *   <dd>
++ *     This property specifies the length of time in seconds that
++ *     successful resolutions remain in the cache.  The default is
++ *     -1, indicating to cache forever.
++ *   </dd>
++ *   <dt><code>networkaddress.cache.negative.ttl</code></dt>
++ *   <dd>
++ *     This property specifies the length of time in seconds that
++ *     unsuccessful resolutions remain in the cache.  The default
++ *     is 10, indicating to cache for 10 seconds.
++ *   </dd>
++ * In both cases, a value of -1 indicates to cache forever and a
++ * value of 0 indicates not to cache.
++ *
++ * @author Gary Benson (gbenson@redhat.com)
++ */
++class ResolverCache
++{
++  /**
++   * The time in seconds for which successful lookups are cached.
++   */
++  private static final int POSITIVE_TTL =
++    getTTL("networkaddress.cache.ttl", -1);
++
++  /**
++   * The time in seconds for which unsuccessful lookups are cached.
++   */
++  private static final int NEGATIVE_TTL =
++    getTTL("networkaddress.cache.negative.ttl", 10);
++
++  /**
++   * Helper function to set the TTLs.
++   */
++  private static int getTTL(String propName, int defaultValue)
++  {
++    String propValue = Security.getProperty(propName);
++    if (propValue == null)
++      return defaultValue;
++
++    return Integer.parseInt(propValue);
++  }
++
++  /**
++   * The cache itself.
++   */
++  private static HashMap cache = new HashMap();
++
++  /**
++   * List of entries which may expire.
++   */
++  private static LinkedList killqueue = new LinkedList();
++
++  /**
++   * Return the hostname for the specified IP address.
++   *
++   * @param ip The IP address as a byte array
++   *
++   * @return The hostname
++   *
++   * @exception UnknownHostException If the reverse lookup fails
++   */
++  public static String getHostByAddr(byte[] addr) throws UnknownHostException
++  {
++    Object key = makeHashableAddress(addr);
++    Entry entry = (Entry) get(key);
++    if (entry != null)
++      {
++	if (entry.value == null)
++	  throw new UnknownHostException();
++	return (String) entry.value;
++      }
++
++    try
++      {
++	String hostname = VMInetAddress.getHostByAddr(addr);
++	put(new Entry(key, hostname));
++	return hostname;
++      }
++    catch (UnknownHostException e)
++      {
++	put(new Entry(key, null));
++	throw e;
++      }
++  }
++
++  /**
++   * Return a list of all IP addresses for the specified hostname.
++   *
++   * @param hostname The hostname
++   *
++   * @return An list of IP addresses as byte arrays
++   *
++   * @exception UnknownHostException If the lookup fails
++   */
++  public static byte[][] getHostByName(String hostname)
++    throws UnknownHostException
++  {
++    Entry entry = (Entry) get(hostname);
++    if (entry != null)
++      {
++	if (entry.value == null)
++	  throw new UnknownHostException();
++	return (byte[][]) entry.value;
++      }
++
++    try
++      {
++	byte[][] addrs = VMInetAddress.getHostByName(hostname);
++	put(new Entry(hostname, addrs));
++	return addrs;
++      }
++    catch (UnknownHostException e)
++      {
++	put(new Entry(hostname, null));
++	throw e;
++      }
++  }
++
++  /**
++   * Convert an IP address expressed as a byte array into something
++   * we can use as a hashtable key.
++   */
++  private static Object makeHashableAddress(byte[] addr)
++  {
++    char[] chars = new char[addr.length];
++    for (int i = 0; i < addr.length; i++)
++      chars[i] = (char) addr[i];
++    return new String(chars);
++  }
++
++  /**
++   * Return the entry in the cache associated with the supplied key,
++   * or <code>null</code> if the cache does not contain an entry
++   * associated with this key.
++   */
++  private static synchronized Entry get(Object key)
++  {
++    reap();
++    return (Entry) cache.get(key);
++  }
++
++  /**
++   * Insert the supplied entry into the cache.
++   */
++  private static synchronized void put(Entry entry)
++  {
++    reap();
++    if (entry.expires != 0)
++      {
++	if (entry.expires != -1)
++	  killqueue.add(entry);
++	cache.put(entry.key, entry);
++      }
++  }
++
++  /**
++   * Clear expired entries.  This method is not synchronized, so
++   * it must only be called by methods that are.
++   */
++  private static void reap()
++  {
++    if (!killqueue.isEmpty())
++      {
++	long now = System.currentTimeMillis();
++
++	Iterator iter = killqueue.iterator();
++	while (iter.hasNext())
++	  {
++	    Entry entry = (Entry) iter.next();
++	    if (entry.expires > now)
++	      break;
++	    cache.remove(entry.key);
++	    iter.remove();
++	  }
++      }
++  }
++  
++  /**
++   * An entry in the cache.
++   */
++  private static class Entry
++  {
++    /**
++     * The key by which this entry is referenced.
++     */
++    public final Object key;
++
++    /**
++     * The entry itself.  A null value indicates a failed lookup.
++     */
++    public final Object value;
++    
++    /**
++     * The time when this cache entry expires.  If set to -1 then
++     * this entry will never expire.  If set to 0 then this entry
++     * expires immediately and will not be inserted into the cache.
++     */
++    public final long expires;
++
++    /**
++     * Constructor.
++     */
++    public Entry(Object key, Object value)
++    {
++      this.key = key;
++      this.value = value;
++
++      int ttl = value != null ? POSITIVE_TTL : NEGATIVE_TTL;
++      if (ttl < 1)
++	expires = ttl;
++      else
++	expires = System.currentTimeMillis() + ttl * 1000;
++    }
++  }
++}
+Index: libjava/classpath/java/net/SocketPermission.java
+===================================================================
+--- libjava/classpath/java/net/SocketPermission.java	(Revision 118579)
++++ libjava/classpath/java/net/SocketPermission.java	(Revision 118580)
+@@ -117,11 +117,18 @@
+   static final long serialVersionUID = -7204263841984476862L;
+ 
+   /**
+-   * A hostname (possibly wildcarded) or IP address (IPv4 or IPv6).
++   * A hostname (possibly wildcarded).  Will be set if and only if
++   * this object was initialized with a hostname.
+    */
+-  private transient String host;
++  private transient String hostname = null;
+ 
+   /**
++   * An IP address (IPv4 or IPv6).  Will be set if and only if this
++   * object was initialized with a single literal IP address.
++   */  
++  private transient InetAddress address = null;
++  
++  /**
+    * A range of ports.
+    */
+   private transient int minport;
+@@ -164,33 +171,41 @@
+    */
+   public SocketPermission(String hostport, String actions)
+   {
+-    super(maybeBracketIPv6Address(hostport));
++    super(processHostport(hostport));
+ 
+     setHostPort(getName());
+     setActions(actions);
+   }
+ 
+   /**
+-   * IPv6 addresses in the hostport must either be enclosed by
+-   * "[" and "]" or be specified in the full uncompressed form.
+-   * In the latter case proprietary JVMs will quote the address
+-   * with "[" and "]", so we do to.
++   * There are two cases in which hostport needs rewriting before
++   * being passed to the superclass constructor.  If hostport is an
++   * empty string then it is substituted with "localhost".  And if
++   * the host part of hostport is a literal IPv6 address in the full
++   * uncompressed form not enclosed with "[" and "]" then we enclose
++   * it with them.
+    */
+-  private static String maybeBracketIPv6Address(String hostport)
++  private static String processHostport(String hostport)
+   {
+-    if (hostport.length() == 0 || hostport.charAt(0) == '[')
++    if (hostport.length() == 0)
++      return "localhost";
++
++    if (hostport.charAt(0) == '[')
+       return hostport;
+ 
+-    int colons = 0, last_colon = 0;
++    int colons = 0;
++    boolean colon_allowed = true;
+     for (int i = 0; i < hostport.length(); i++)
+       {
+ 	if (hostport.charAt(i) == ':')
+ 	  {
+-	    if (i - last_colon == 1)
++	    if (!colon_allowed)
+ 	      throw new IllegalArgumentException("Ambiguous hostport part");
+ 	    colons++;
+-	    last_colon = i;
++	    colon_allowed = false;
+ 	  }
++	else
++	  colon_allowed = true;
+       }
+ 
+     switch (colons)
+@@ -206,6 +221,7 @@
+ 
+       case 8:
+ 	// an IPv6 address with ports
++	int last_colon = hostport.lastIndexOf(':');
+ 	return "[" + hostport.substring(0, last_colon) + "]"
+ 	  + hostport.substring(last_colon);
+ 
+@@ -220,19 +236,19 @@
+   private void setHostPort(String hostport)
+   {
+     // Split into host and ports
+-    String ports;
+-    if (hostport.length() == 0)
++    String host, ports;
++    if (hostport.charAt(0) == '[')
+       {
+-	host = ports = "";
+-      }
+-    else if (hostport.charAt(0) == '[')
+-      {
+ 	// host is a bracketed IPv6 address
+ 	int end = hostport.indexOf("]");
+ 	if (end == -1)
+ 	  throw new IllegalArgumentException("Unmatched '['");
+ 	host = hostport.substring(1, end);
+ 
++	address = InetAddress.getByLiteral(host);
++	if (address == null)
++	  throw new IllegalArgumentException("Bad IPv6 address");
++
+ 	if (end == hostport.length() - 1)
+ 	  ports = "";
+ 	else if (hostport.charAt(end + 1) == ':')
+@@ -254,9 +270,16 @@
+ 	    host = hostport.substring(0, sep);
+ 	    ports = hostport.substring(sep + 1);
+ 	  }
++
++	address = InetAddress.getByLiteral(host);
++	if (address == null)
++	  {
++	    if (host.lastIndexOf('*') > 0)
++	      throw new IllegalArgumentException("Bad hostname");
++
++	    hostname = host;
++	  }
+       }
+-    if (ports.indexOf(":") != -1)
+-      throw new IllegalArgumentException("Unexpected ':'");
+ 
+     // Parse and validate the ports
+     if (ports.length() == 0)
+@@ -363,10 +386,25 @@
+     else
+       return false;
+ 
+-    return p.actionmask == actionmask &&
+-      p.minport == minport &&
+-      p.maxport == maxport &&
+-      p.host.equals(host);
++    if (p.actionmask != actionmask ||
++	p.minport != minport ||
++	p.maxport != maxport)
++      return false;
++
++    if (address != null)
++      {
++	if (p.address == null)
++	  return false;
++	else
++	  return p.address.equals(address);
++      }
++    else
++      {
++	if (p.hostname == null)
++	  return false;
++	else
++	  return p.hostname.equals(hostname);
++      }
+   }
+ 
+   /**
+@@ -377,7 +415,12 @@
+    */
+   public int hashCode()
+   {
+-    return actionmask + minport + maxport + host.hashCode();
++    int code = actionmask + minport + maxport;
++    if (address != null)
++      code += address.hashCode();
++    else
++      code += hostname.hashCode();
++    return code;
+   }
+ 
+   /**
+@@ -417,6 +460,44 @@
+   }
+ 
+   /**
++   * Returns an array of all IP addresses represented by this object.
++   */
++  private InetAddress[] getAddresses()
++  {
++    if (address != null)
++      return new InetAddress[] {address};
++
++    try
++      {
++	return InetAddress.getAllByName(hostname);
++      }
++    catch (UnknownHostException e)
++      {
++	return new InetAddress[0];
++      }
++  }
++
++  /**
++   * Returns the canonical hostname represented by this object,
++   * or null if this object represents a wildcarded domain.
++   */
++  private String getCanonicalHostName()
++  {
++    if (address != null)
++      return address.internalGetCanonicalHostName();
++    if (hostname.charAt(0) == '*')
++      return null;
++    try
++      {
++	return InetAddress.getByName(hostname).internalGetCanonicalHostName();
++      }
++    catch (UnknownHostException e)
++      {
++	return null;
++      }
++  }
++  
++  /**
+    * Returns true if the permission object passed it is implied by the
+    * this permission.  This will be true if:
+    * 
+@@ -451,6 +532,11 @@
+     else
+       return false;
+ 
++    // If p was initialised with an empty hostname then we do not
++    // imply it. This is not part of the spec, but it seems necessary.
++    if (p.hostname != null && p.hostname.length() == 0)
++      return false;
++    
+     // Next check the actions
+     if ((p.actionmask & actionmask) != p.actionmask)
+ 	return false;
+@@ -460,36 +546,54 @@
+       return false;
+ 
+     // Finally check the hosts
+-    if (host.equals(p.host))
+-      return true;
++    String p_canon = null;
+ 
+-    // Try the canonical names
+-    String ourcanonical = null;
+-    String theircanonical = null;
+-    try
++    // Return true if this object was initialized with a single
++    // IP address which one of p's IP addresses is equal to.
++    if (address != null)
+       {
+-	ourcanonical = InetAddress.getByName(host).getHostName();
+-	theircanonical = InetAddress.getByName(p.host).getHostName();
++	InetAddress[] addrs = p.getAddresses();
++	for (int i = 0; i < addrs.length; i++)
++	  {
++	    if (address.equals(addrs[i]))
++	      return true;
++	  }
+       }
+-    catch (UnknownHostException e)
++
++    // Return true if this object is a wildcarded domain that
++    // p's canonical name matches.
++    if (hostname != null && hostname.charAt(0) == '*')
+       {
+-	// Who didn't resolve?  Just assume current address is canonical enough
+-	// Is this ok to do?
+-	if (ourcanonical == null)
+-	  ourcanonical = host;
+-	if (theircanonical == null)
+-	  theircanonical = p.host;
++	p_canon = p.getCanonicalHostName();
++	if (p_canon != null && p_canon.endsWith(hostname.substring(1)))
++	  return true;
++	
+       }
+ 
+-    if (ourcanonical.equals(theircanonical))
+-      return true;
++    // Return true if this one of this object's IP addresses
++    // is equal to one of p's.
++    if (address == null)
++      {
++	InetAddress[] addrs = p.getAddresses();
++	InetAddress[] p_addrs = p.getAddresses();
+ 
+-    // Well, last chance.  Try for a wildcard
+-    if (host.indexOf("*.") != -1)
++	for (int i = 0; i < addrs.length; i++)
++	  {
++	    for (int j = 0; j < p_addrs.length; j++)
++	      {
++		if (addrs[i].equals(p_addrs[j]))
++		  return true;
++	      }
++	  }
++      }
++
++    // Return true if this object's canonical name equals p's.
++    String canon = getCanonicalHostName();
++    if (canon != null)
+       {
+-	String wild_domain =
+-	  host.substring(host.indexOf("*" + 1));
+-	if (theircanonical.endsWith(wild_domain))
++	if (p_canon == null)
++	  p_canon = p.getCanonicalHostName();
++	if (p_canon != null && canon.equals(p_canon))
+ 	  return true;
+       }
+ 
+Index: libjava/classpath/java/net/Inet4Address.java
+===================================================================
+--- libjava/classpath/java/net/Inet4Address.java	(Revision 118579)
++++ libjava/classpath/java/net/Inet4Address.java	(Revision 118580)
+@@ -1,5 +1,5 @@
+ /* Inet4Address.java --
+-   Copyright (C) 2002, 2003, 2004, 2005  Free Software Foundation, Inc.
++   Copyright (C) 2002, 2003, 2004, 2005, 2006 Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -57,11 +57,16 @@
+   static final long serialVersionUID = 3286316764910316507L;
+ 
+   /**
+-   * needed for serialization
++   * The address family of these addresses (used for serialization).
+    */
++  private static final int AF_INET = 2;
++
++  /**
++   * Inet4Address objects are serialized as InetAddress objects.
++   */
+   private Object writeReplace() throws ObjectStreamException
+   {
+-    return new InetAddress(addr, hostName);
++    return new InetAddress(addr, hostName, AF_INET);
+   }
+   
+   /**
+@@ -74,7 +79,7 @@
+    */
+   Inet4Address(byte[] addr, String host)
+   {
+-    super(addr, host);
++    super(addr, host, AF_INET);
+   }
+ 
+   /**
+@@ -84,7 +89,7 @@
+    */
+   public boolean isMulticastAddress()
+   {
+-    return super.isMulticastAddress();
++    return (addr[0] & 0xf0) == 0xe0;
+   }
+ 
+   /**
+@@ -92,7 +97,7 @@
+    */
+   public boolean isLoopbackAddress()
+   {
+-    return super.isLoopbackAddress();
++    return (addr[0] & 0xff) == 0x7f;
+   }
+ 
+   /**
+@@ -102,7 +107,7 @@
+    */
+   public boolean isAnyLocalAddress()
+   {
+-    return super.isAnyLocalAddress();
++    return equals(InetAddress.ANY_IF);
+   }
+ 
+   /**
+@@ -112,7 +117,7 @@
+    */
+   public boolean isLinkLocalAddress()
+   {
+-    return super.isLinkLocalAddress();
++    return false;
+   }
+ 
+   /**
+@@ -122,7 +127,19 @@
+    */
+   public boolean isSiteLocalAddress()
+   {
+-    return super.isSiteLocalAddress();
++    // 10.0.0.0/8
++    if ((addr[0] & 0xff) == 0x0a)
++      return true;
++
++    // 172.16.0.0/12
++    if ((addr[0] & 0xff) == 0xac && (addr[1] & 0xf0) == 0x10)
++      return true;
++
++    // 192.168.0.0/16
++    if ((addr[0] & 0xff) == 0xc0 && (addr[1] & 0xff) == 0xa8)
++      return true;
++
++    return false;
+   }
+ 
+   /**
+@@ -132,7 +149,7 @@
+    */
+   public boolean isMCGlobal()
+   {
+-    return super.isMCGlobal();
++    return false;
+   }
+ 
+   /**
+@@ -142,7 +159,7 @@
+    */
+   public boolean isMCNodeLocal()
+   {
+-    return super.isMCNodeLocal();
++    return false;
+   }
+ 
+   /**
+@@ -152,7 +169,12 @@
+    */
+   public boolean isMCLinkLocal()
+   {
+-    return super.isMCLinkLocal();
++    if (! isMulticastAddress())
++      return false;
++
++    return ((addr[0] & 0xff) == 0xe0
++	    && (addr[1] & 0xff)  == 0x00
++	    && (addr[2] & 0xff)  == 0x00);
+   }
+ 
+   /**
+@@ -162,7 +184,7 @@
+    */
+   public boolean isMCSiteLocal()
+   {
+-    return super.isMCSiteLocal();
++    return false;
+   }
+ 
+   /**
+@@ -172,7 +194,7 @@
+    */
+   public boolean isMCOrgLocal()
+   {
+-    return super.isMCOrgLocal();
++    return false;
+   }
+ 
+   /**
+@@ -190,7 +212,23 @@
+    */
+   public String getHostAddress()
+   {
+-    return super.getHostAddress();
++    StringBuffer sb = new StringBuffer(40);
++
++    int len = addr.length;
++    int i = 0;
++    
++    for ( ; ; )
++      {
++        sb.append(addr[i] & 0xff);
++        i++;
++	
++        if (i == len)
++          break;
++	
++        sb.append('.');
++      }
++
++    return sb.toString();
+   }
+ 
+   /**
+Index: libjava/classpath/java/net/Inet6Address.java
+===================================================================
+--- libjava/classpath/java/net/Inet6Address.java	(Revision 118579)
++++ libjava/classpath/java/net/Inet6Address.java	(Revision 118580)
+@@ -1,5 +1,5 @@
+ /* Inet6Address.java --
+-   Copyright (C) 2002, 2003, 2004  Free Software Foundation, Inc.
++   Copyright (C) 2002, 2003, 2004, 2006 Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -93,6 +93,11 @@
+   private transient NetworkInterface nif; 
+ 
+   /**
++   * The address family of these addresses (used for serialization).
++   */
++  private static final int AF_INET6 = 10;
++
++  /**
+    * Create an Inet6Address object
+    *
+    * @param addr The IP address
+@@ -100,7 +105,7 @@
+    */
+   Inet6Address(byte[] addr, String host)
+   {
+-    super(addr, host);
++    super(addr, host, AF_INET6);
+     // Super constructor clones the addr.  Get a reference to the clone.
+     this.ipaddress = this.addr;
+     ifname = null;
+Index: libjava/ChangeLog
+===================================================================
+--- libjava/ChangeLog	(Revision 118579)
++++ libjava/ChangeLog	(Revision 118580)
+@@ -1,3 +1,40 @@
++2006-11-03  Gary Benson  <gbenson@redhat.com>
++
++	* java/net/InetAddress.java: Removed.
++	* java/net/natInetAddressNoNet.cc: Likewise.
++	* java/net/natInetAddressPosix.cc: Likewise.
++	* java/net/natInetAddressWin32.cc: Likewise.
++	* java/net/VMInetAddress.java (getLocalHostname,
++	lookupInaddrAny, getHostByAddr, getHostByName,
++	aton): Replace glue methods with native ones.
++	* java/net/natVMInetAddressNoNet.cc: New file.
++	* java/net/natVMInetAddressPosix.cc: Likewise.
++	* java/net/natVMInetAddressWin32.cc: Likewise.
++	* Makefile.am, configure.ac: Reflect the above.
++	* sources.am, Makefile.in, configure: Rebuilt.
++
++	* java/net/natVMNetworkInterfaceWin32.cc
++	(winsock2GetRealNetworkInterfaces): Create InetAddress
++	objects using InetAddress.getByAddress.
++	* gnu/java/net/natPlainSocketImplWin32.cc
++	(accept, getOption): Likewise.
++	* gnu/java/net/natPlainDatagramSocketImplWin32.cc
++	(peekData, receive, getOption): Likewise.
++
++2006-09-20  Gary Benson  <gbenson@redhat.com>
++
++	* java/net/InetAddress.java: Mostly merged with Classpath.
++	* java/net/VMInetAddress.java: New file.
++	* sources.am, Makefile.in: Rebuilt.
++
++	* java/net/natVMNetworkInterfacePosix.cc
++	(getInterfaces): Create InetAddress objects using
++	InetAddress.getByAddress.
++	* gnu/java/net/natPlainSocketImplPosix.cc
++	(accept, getOption): Likewise.
++	* gnu/java/net/natPlainDatagramSocketImplPosix.cc
++	(peekData, receive, getLocalAddress): Likewise.
++
+ 2006-09-27  Tom Tromey  <tromey@redhat.com>
+ 
+ 	https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=201712
+Index: libjava/gnu/java/net/natPlainSocketImplPosix.cc
+===================================================================
+--- libjava/gnu/java/net/natPlainSocketImplPosix.cc	(Revision 118579)
++++ libjava/gnu/java/net/natPlainSocketImplPosix.cc	(Revision 118580)
+@@ -308,7 +308,7 @@
+ 
+   s->native_fd = new_socket;
+   s->localport = localport;
+-  s->address = new ::java::net::InetAddress (raddr, NULL);
++  s->address = ::java::net::InetAddress::getByAddress (raddr);
+   s->port = rport;
+   return;
+ 
+@@ -808,7 +808,7 @@
+           else
+             throw new ::java::net::SocketException
+               (JvNewStringUTF ("invalid family"));
+-          localAddress = new ::java::net::InetAddress (laddr, NULL);
++          localAddress = ::java::net::InetAddress::getByAddress (laddr);
+         }
+ 
+       return localAddress;
+Index: libjava/gnu/java/net/natPlainSocketImplWin32.cc
+===================================================================
+--- libjava/gnu/java/net/natPlainSocketImplWin32.cc	(Revision 118579)
++++ libjava/gnu/java/net/natPlainSocketImplWin32.cc	(Revision 118580)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2003, 2004, 2005 Free Software Foundation
++/* Copyright (C) 2003, 2004, 2005, 2006 Free Software Foundation
+ 
+    This file is part of libgcj.
+ 
+@@ -328,7 +328,7 @@
+ 
+   s->native_fd = (jint) hSocket;
+   s->localport = localport;
+-  s->address = new ::java::net::InetAddress (raddr, NULL);
++  s->address = ::java::net::InetAddress::getByAddress (raddr);
+   s->port = rport;
+   return;
+ 
+@@ -735,7 +735,7 @@
+           else
+             throw new ::java::net::SocketException
+               (JvNewStringUTF ("invalid family"));
+-          localAddress = new ::java::net::InetAddress (laddr, NULL);
++          localAddress = ::java::net::InetAddress::getByAddress (laddr);
+         }
+ 
+       return localAddress;
+Index: libjava/gnu/java/net/natPlainDatagramSocketImplPosix.cc
+===================================================================
+--- libjava/gnu/java/net/natPlainDatagramSocketImplPosix.cc	(Revision 118579)
++++ libjava/gnu/java/net/natPlainDatagramSocketImplPosix.cc	(Revision 118580)
+@@ -290,7 +290,7 @@
+   else
+     throw new ::java::net::SocketException (JvNewStringUTF ("invalid family"));
+ 
+-  p->setAddress (new ::java::net::InetAddress (raddr, NULL));
++  p->setAddress (::java::net::InetAddress::getByAddress (raddr));
+   p->setPort (rport);
+   p->length = (int) retlen;
+   return rport;
+@@ -430,7 +430,7 @@
+   else
+     throw new ::java::net::SocketException (JvNewStringUTF ("invalid family"));
+ 
+-  p->setAddress (new ::java::net::InetAddress (raddr, NULL));
++  p->setAddress (::java::net::InetAddress::getByAddress (raddr));
+   p->setPort (rport);
+   p->length = (jint) retlen;
+   return;
+@@ -564,7 +564,7 @@
+   else
+     throw new ::java::net::SocketException (JvNewStringUTF ("invalid family"));
+ 
+-  return new ::java::net::InetAddress (laddr, NULL);
++  return ::java::net::InetAddress::getByAddress (laddr);
+ }
+ 
+ void
+Index: libjava/gnu/java/net/natPlainDatagramSocketImplWin32.cc
+===================================================================
+--- libjava/gnu/java/net/natPlainDatagramSocketImplWin32.cc	(Revision 118579)
++++ libjava/gnu/java/net/natPlainDatagramSocketImplWin32.cc	(Revision 118580)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2003  Free Software Foundation
++/* Copyright (C) 2003, 2006 Free Software Foundation
+ 
+    This file is part of libgcj.
+ 
+@@ -238,7 +238,7 @@
+   else
+     throw new ::java::net::SocketException (JvNewStringUTF ("invalid family"));
+ 
+-  p->setAddress (new ::java::net::InetAddress (raddr, NULL));
++  p->setAddress (::java::net::InetAddress::getByAddress (raddr));
+   p->setPort (rport);
+   p->length = (jint) retlen;
+   return rport;
+@@ -360,7 +360,7 @@
+   else
+     throw new ::java::net::SocketException (JvNewStringUTF ("invalid family"));
+ 
+-  p->setAddress (new ::java::net::InetAddress (raddr, NULL));
++  p->setAddress (::java::net::InetAddress::getByAddress (raddr));
+   p->setPort (rport);
+   p->length = (jint) retlen;
+   return;
+@@ -656,7 +656,7 @@
+       else
+         throw new ::java::net::SocketException (
+             JvNewStringUTF ("invalid family"));
+-      localAddress = new ::java::net::InetAddress (laddr, NULL);
++      localAddress = ::java::net::InetAddress::getByAddress (laddr);
+     }
+   return localAddress;
+   break;
+Index: libjava/sources.am
+===================================================================
+--- libjava/sources.am	(Revision 118579)
++++ libjava/sources.am	(Revision 118580)
+@@ -5212,7 +5212,7 @@
+ classpath/java/net/HttpURLConnection.java \
+ classpath/java/net/Inet4Address.java \
+ classpath/java/net/Inet6Address.java \
+-java/net/InetAddress.java \
++classpath/java/net/InetAddress.java \
+ classpath/java/net/InetSocketAddress.java \
+ classpath/java/net/JarURLConnection.java \
+ classpath/java/net/MalformedURLException.java \
+@@ -5224,6 +5224,7 @@
+ classpath/java/net/PasswordAuthentication.java \
+ classpath/java/net/PortUnreachableException.java \
+ classpath/java/net/ProtocolException.java \
++classpath/java/net/ResolverCache.java \
+ classpath/java/net/ServerSocket.java \
+ classpath/java/net/Socket.java \
+ classpath/java/net/SocketAddress.java \
+@@ -5244,6 +5245,7 @@
+ classpath/java/net/URLStreamHandlerFactory.java \
+ classpath/java/net/UnknownHostException.java \
+ classpath/java/net/UnknownServiceException.java \
++java/net/VMInetAddress.java \
+ java/net/VMNetworkInterface.java \
+ java/net/VMURLConnection.java
+ 
+Index: libjava/java/net/natInetAddressPosix.cc
+===================================================================
+--- libjava/java/net/natInetAddressPosix.cc	(Revision 118579)
++++ libjava/java/net/natInetAddressPosix.cc	(Revision 118580)
+@@ -1,304 +0,0 @@
+-/* Copyright (C) 2003  Free Software Foundation
+-
+-   This file is part of libgcj.
+-
+-This software is copyrighted work licensed under the terms of the
+-Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
+-details.  */
+-
+-#include <config.h>
+-
+-#ifdef HAVE_UNISTD_H
+-#include <unistd.h>
+-#endif
+-#include <string.h>
+-#include <errno.h>
+-
+-#include <sys/param.h>
+-#include <sys/types.h>
+-#ifdef HAVE_SYS_SOCKET_H
+-#include <sys/socket.h>
+-#endif
+-#ifdef HAVE_NETINET_IN_H
+-#include <netinet/in.h>
+-#endif
+-#ifdef HAVE_ARPA_INET_H
+-#include <arpa/inet.h>
+-#endif
+-#ifdef HAVE_NETDB_H
+-#include <netdb.h>
+-#endif
+-
+-#include <gcj/cni.h>
+-#include <jvm.h>
+-#include <java/net/InetAddress.h>
+-#include <java/net/UnknownHostException.h>
+-#include <java/lang/SecurityException.h>
+-
+-#if defined(HAVE_UNAME) && ! defined(HAVE_GETHOSTNAME)
+-#include <sys/utsname.h>
+-#endif
+-
+-#ifndef HAVE_GETHOSTNAME_DECL
+-extern "C" int gethostname (char *name, int namelen);
+-#endif
+-
+-jbyteArray
+-java::net::InetAddress::aton (jstring host)
+-{
+-  char *hostname;
+-  char buf[100];
+-  int len = JvGetStringUTFLength(host);
+-  if (len < 100)
+-    hostname = buf;
+-  else
+-    hostname = (char*) _Jv_AllocBytes (len+1);
+-  JvGetStringUTFRegion (host, 0, host->length(), hostname);
+-  buf[len] = '\0';
+-  char* bytes = NULL;
+-  int blen = 0;
+-#ifdef HAVE_INET_ATON
+-  struct in_addr laddr;
+-  if (inet_aton (hostname, &laddr))
+-    {
+-      bytes = (char*) &laddr;
+-      blen = 4;
+-    }
+-#elif defined(HAVE_INET_ADDR)
+-#if ! HAVE_IN_ADDR_T
+-  typedef jint in_addr_t;
+-#endif
+-  in_addr_t laddr = inet_addr (hostname);
+-  if (laddr != (in_addr_t)(-1))
+-    {
+-      bytes = (char*) &laddr;
+-      blen = 4;
+-    }
+-#endif
+-#if defined (HAVE_INET_PTON) && defined (HAVE_INET6)
+-  char inet6_addr[16];
+-  if (len != 0 && inet_pton (AF_INET6, hostname, inet6_addr) > 0)
+-    {
+-      bytes = inet6_addr;
+-      blen = 16;
+-    }
+-#endif
+-  if (blen == 0)
+-    return NULL;
+-  jbyteArray result = JvNewByteArray (blen);
+-  memcpy (elements (result), bytes, blen);
+-  return result;
+-}
+-
+-jint
+-java::net::InetAddress::getFamily (jbyteArray bytes)
+-{
+-  int len = bytes->length;
+-  if (len == 4)
+-    return AF_INET;
+-#ifdef HAVE_INET6
+-  else if (len == 16)
+-    return AF_INET6;
+-#endif /* HAVE_INET6 */
+-  else
+-    JvFail ("unrecognized size");
+-}
+-
+-
+-JArray<java::net::InetAddress*> *
+-java::net::InetAddress::lookup (jstring host, java::net::InetAddress* iaddr,
+-				jboolean all)
+-{
+-  struct hostent *hptr = NULL;
+-#if defined (HAVE_GETHOSTBYNAME_R) || defined (HAVE_GETHOSTBYADDR_R)
+-  struct hostent hent_r;
+-#if HAVE_STRUCT_HOSTENT_DATA
+-  struct hostent_data fixed_buffer, *buffer_r = &fixed_buffer;
+-#else
+-#if defined (__GLIBC__) 
+-  // FIXME: in glibc, gethostbyname_r returns NETDB_INTERNAL to herr and
+-  // ERANGE to errno if the buffer size is too small, rather than what is 
+-  // expected here. We work around this by setting a bigger buffer size and 
+-  // hoping that it is big enough.
+-  char fixed_buffer[1024];
+-#else
+-  char fixed_buffer[200];
+-#endif
+-  char *buffer_r = fixed_buffer;
+-  int size_r = sizeof (fixed_buffer);
+-#endif
+-#endif
+-
+-  if (host != NULL)
+-    {
+-      char *hostname;
+-      char buf[100];
+-      int len = JvGetStringUTFLength(host);
+-      if (len < 100)
+-	hostname = buf;
+-      else
+-	hostname = (char*) _Jv_AllocBytes (len+1);
+-      JvGetStringUTFRegion (host, 0, host->length(), hostname);
+-      buf[len] = '\0';
+-#ifdef HAVE_GETHOSTBYNAME_R
+-      while (true)
+-	{
+-	  int ok;
+-#if HAVE_STRUCT_HOSTENT_DATA
+-	  ok = ! gethostbyname_r (hostname, &hent_r, buffer_r);
+-#else
+-	  int herr = 0;
+-#ifdef GETHOSTBYNAME_R_RETURNS_INT
+-	  ok = ! gethostbyname_r (hostname, &hent_r, buffer_r, size_r,
+-				  &hptr, &herr);
+-#else
+-	  hptr = gethostbyname_r (hostname, &hent_r, buffer_r, size_r, &herr);
+-	  ok = hptr != NULL;
+-#endif /* GETHOSTNAME_R_RETURNS_INT */
+-	  if (! ok && herr == ERANGE)
+-	    {
+-	      size_r *= 2;
+-	      buffer_r = (char *) _Jv_AllocBytes (size_r);
+-	    }
+-	  else
+-#endif /* HAVE_STRUCT_HOSTENT_DATA */
+-	    break;
+-	}
+-#else
+-      // FIXME: this is insufficient if some other piece of code calls
+-      // this gethostbyname.
+-      JvSynchronize sync (java::net::InetAddress::loopbackAddress);
+-      hptr = gethostbyname (hostname);
+-#endif /* HAVE_GETHOSTBYNAME_R */
+-    }
+-  else
+-    {
+-      jbyteArray bytes = iaddr->addr;
+-      char *chars = (char*) elements (bytes);
+-      int len = bytes->length;
+-      int type;
+-      char *val;
+-      if (len == 4)
+-	{
+-	  val = chars;
+-	  type = iaddr->family = AF_INET;
+-	}
+-#ifdef HAVE_INET6
+-      else if (len == 16)
+-	{
+-	  val = (char *) &chars;
+-	  type = iaddr->family = AF_INET6;
+-	}
+-#endif /* HAVE_INET6 */
+-      else
+-	JvFail ("unrecognized size");
+-
+-#ifdef HAVE_GETHOSTBYADDR_R
+-      while (true)
+-	{
+-	  int ok;
+-#if HAVE_STRUCT_HOSTENT_DATA
+-	  ok = ! gethostbyaddr_r (val, len, type, &hent_r, buffer_r);
+-#else
+-	  int herr = 0;
+-#ifdef GETHOSTBYADDR_R_RETURNS_INT
+-	  ok = ! gethostbyaddr_r (val, len, type, &hent_r,
+-				  buffer_r, size_r, &hptr, &herr);
+-#else
+-	  hptr = gethostbyaddr_r (val, len, type, &hent_r,
+-				  buffer_r, size_r, &herr);
+-	  ok = hptr != NULL;
+-#endif /* GETHOSTBYADDR_R_RETURNS_INT */
+-	  if (! ok && herr == ERANGE)
+-	    {
+-	      size_r *= 2;
+-	      buffer_r = (char *) _Jv_AllocBytes (size_r);
+-	    }
+-	  else 
+-#endif /* HAVE_STRUCT_HOSTENT_DATA */
+-	    break;
+-	}
+-#else /* HAVE_GETHOSTBYADDR_R */
+-      // FIXME: this is insufficient if some other piece of code calls
+-      // this gethostbyaddr.
+-      JvSynchronize sync (java::net::InetAddress::loopbackAddress);
+-      hptr = gethostbyaddr (val, len, type);
+-#endif /* HAVE_GETHOSTBYADDR_R */
+-    }
+-  if (hptr != NULL)
+-    {
+-      if (!all)
+-        host = JvNewStringUTF (hptr->h_name);
+-    }
+-  if (hptr == NULL)
+-    {
+-      if (iaddr != NULL && iaddr->addr != NULL)
+-	{
+-	  iaddr->hostName = iaddr->getHostAddress();
+-	  return NULL;
+-	}
+-      else
+-	throw new java::net::UnknownHostException(host);
+-    }
+-  int count;
+-  if (all)
+-    {
+-      char** ptr = hptr->h_addr_list;
+-      count = 0;
+-      while (*ptr++)  count++;
+-    }
+-  else
+-    count = 1;
+-  JArray<java::net::InetAddress*> *result;
+-  java::net::InetAddress** iaddrs;
+-  if (all)
+-    {
+-      result = java::net::InetAddress::allocArray (count);
+-      iaddrs = elements (result);
+-    }
+-  else
+-    {
+-      result = NULL;
+-      iaddrs = &iaddr;
+-    }
+-
+-  for (int i = 0;  i < count;  i++)
+-    {
+-      if (iaddrs[i] == NULL)
+-	iaddrs[i] = new java::net::InetAddress (NULL, NULL);
+-      if (iaddrs[i]->hostName == NULL)
+-        iaddrs[i]->hostName = host;
+-      if (iaddrs[i]->addr == NULL)
+-	{
+-	  char *bytes = hptr->h_addr_list[i];
+-	  iaddrs[i]->addr = JvNewByteArray (hptr->h_length);
+-	  iaddrs[i]->family = getFamily (iaddrs[i]->addr);
+-	  memcpy (elements (iaddrs[i]->addr), bytes, hptr->h_length);
+-	}
+-    }
+-  return result;
+-}
+-
+-jstring
+-java::net::InetAddress::getLocalHostname ()
+-{
+-  char *chars;
+-#ifdef HAVE_GETHOSTNAME
+-  char buffer[MAXHOSTNAMELEN];
+-  if (gethostname (buffer, MAXHOSTNAMELEN))
+-    return NULL;
+-  chars = buffer;
+-#elif HAVE_UNAME
+-  struct utsname stuff;
+-  if (uname (&stuff) != 0)
+-    return NULL;
+-  chars = stuff.nodename;
+-#else
+-  return NULL;
+-#endif
+-  // It is admittedly non-optimal to convert the hostname to Unicode
+-  // only to convert it back in getByName, but simplicity wins.  Note
+-  // that unless there is a SecurityManager, we only get called once
+-  // anyway, thanks to the InetAddress.localhost cache.
+-  return JvNewStringUTF (chars);
+-}
+Index: libjava/java/net/natInetAddressWin32.cc
+===================================================================
+--- libjava/java/net/natInetAddressWin32.cc	(Revision 118579)
++++ libjava/java/net/natInetAddressWin32.cc	(Revision 118580)
+@@ -1,168 +0,0 @@
+-/* Copyright (C) 2003  Free Software Foundation
+-
+-   This file is part of libgcj.
+-
+-This software is copyrighted work licensed under the terms of the
+-Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
+-details.  */
+-
+-#include <config.h>
+-#include <platform.h>
+-
+-#undef STRICT
+-
+-#include <java/net/InetAddress.h>
+-#include <java/net/UnknownHostException.h>
+-#include <java/lang/SecurityException.h>
+-
+-jbyteArray
+-java::net::InetAddress::aton (jstring host)
+-{
+-  JV_TEMP_UTF_STRING (hostname, host);
+-  char* bytes = NULL;
+-  int blen = 0;
+-  unsigned long laddr = inet_addr (hostname);
+-  if (laddr != INADDR_NONE)
+-    {
+-      bytes = (char*) &laddr;
+-      blen = 4;
+-    }
+-  if (blen == 0)
+-    return NULL;
+-  jbyteArray result = JvNewByteArray (blen);
+-  memcpy (elements (result), bytes, blen);
+-  return result;
+-}
+-
+-jint
+-java::net::InetAddress::getFamily (jbyteArray bytes)
+-{
+-  int len = bytes->length;
+-  if (len == 4)
+-    return AF_INET;
+-#ifdef HAVE_INET6
+-  else if (len == 16)
+-    return AF_INET6;
+-#endif /* HAVE_INET6 */
+-  else
+-    JvFail ("unrecognized size");
+-}
+-
+-
+-JArray<java::net::InetAddress*> *
+-java::net::InetAddress::lookup (jstring host, java::net::InetAddress* iaddr,
+-        jboolean all)
+-{
+-  struct hostent *hptr = NULL;
+-  if (host != NULL)
+-    {
+-      JV_TEMP_UTF_STRING (hostname, host);
+-
+-      // FIXME: this is insufficient if some other piece of code calls
+-      // this gethostbyname.
+-      JvSynchronize sync (java::net::InetAddress::loopbackAddress);
+-      hptr = gethostbyname (hostname);
+-    }
+-  else
+-    {
+-      jbyteArray bytes = iaddr->addr;
+-      char *chars = (char*) elements (bytes);
+-      int len = bytes->length;
+-      int type;
+-      char *val;
+-      if (len == 4)
+-        {
+-          val = chars;
+-          type = iaddr->family = AF_INET;
+-        }
+-#ifdef HAVE_INET6
+-      else if (len == 16)
+-      {
+-        val = (char *) &chars;
+-        type = iaddr->family = AF_INET6;
+-      }
+-#endif /* HAVE_INET6 */
+-      else
+-        JvFail ("unrecognized size");
+-
+-      // FIXME: this is insufficient if some other piece of code calls
+-      // this gethostbyaddr.
+-      JvSynchronize sync (java::net::InetAddress::loopbackAddress);
+-      hptr = gethostbyaddr (val, len, type);
+-    }
+-  if (hptr != NULL)
+-    {
+-      if (!all)
+-        host = JvNewStringUTF (hptr->h_name);
+-      java::lang::SecurityException *ex = checkConnect (host);
+-      if (ex != NULL)
+-        {
+-          if (iaddr == NULL || iaddr->addr == NULL)
+-            throw ex;
+-          hptr = NULL;
+-        }
+-    }
+-  if (hptr == NULL)
+-    {
+-      if (iaddr != NULL && iaddr->addr != NULL)
+-        {
+-          iaddr->hostName = iaddr->getHostAddress();
+-          return NULL;
+-        }
+-      else
+-        throw new java::net::UnknownHostException(host);
+-    }
+-
+-  int count;
+-  if (all)
+-    {
+-      char** ptr = hptr->h_addr_list;
+-      count = 0;
+-      while (*ptr++)  count++;
+-    }
+-  else
+-    count = 1;
+-
+-  JArray<java::net::InetAddress*> *result;
+-  java::net::InetAddress** iaddrs;
+-  if (all)
+-    {
+-      result = java::net::InetAddress::allocArray (count);
+-      iaddrs = elements (result);
+-    }
+-  else
+-    {
+-      result = NULL;
+-      iaddrs = &iaddr;
+-    }
+-
+-  for (int i = 0;  i < count;  i++)
+-    {
+-      if (iaddrs[i] == NULL)
+-        iaddrs[i] = new java::net::InetAddress (NULL, NULL);
+-      if (iaddrs[i]->hostName == NULL)
+-        iaddrs[i]->hostName = host;
+-      if (iaddrs[i]->addr == NULL)
+-        {
+-          char *bytes = hptr->h_addr_list[i];
+-          iaddrs[i]->addr = JvNewByteArray (hptr->h_length);
+-          iaddrs[i]->family = getFamily (iaddrs[i]->addr);
+-          memcpy (elements (iaddrs[i]->addr), bytes, hptr->h_length);
+-        }
+-    }
+-    
+-  return result;
+-}
+-
+-jstring
+-java::net::InetAddress::getLocalHostname ()
+-{
+-  char buffer[400];
+-  if (gethostname (buffer, sizeof(buffer)))
+-    return NULL;
+-  // It is admittedly non-optimal to convert the hostname to Unicode
+-  // only to convert it back in getByName, but simplicity wins.  Note
+-  // that unless there is a SecurityManager, we only get called once
+-  // anyway, thanks to the InetAddress.localhost cache.
+-  return JvNewStringUTF (buffer);
+-}
+Index: libjava/java/net/natInetAddressNoNet.cc
+===================================================================
+--- libjava/java/net/natInetAddressNoNet.cc	(Revision 118579)
++++ libjava/java/net/natInetAddressNoNet.cc	(Revision 118580)
+@@ -1,36 +0,0 @@
+-/* Copyright (C) 2003  Free Software Foundation
+-
+-   This file is part of libgcj.
+-
+-This software is copyrighted work licensed under the terms of the
+-Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
+-details.  */
+-
+-#include <config.h>
+-#include <stddef.h>
+-
+-#include <java/net/InetAddress.h>
+-
+-jbyteArray
+-java::net::InetAddress::aton (jstring)
+-{
+-  return NULL;
+-}
+-
+-jint
+-java::net::InetAddress::getFamily (jbyteArray bytes)
+-{
+-  return 0;
+-}
+-
+-JArray<java::net::InetAddress*> *
+-java::net::InetAddress::lookup (jstring, java::net::InetAddress *, jboolean)
+-{
+-  return NULL;
+-}
+-
+-jstring
+-java::net::InetAddress::getLocalHostname ()
+-{
+-  return NULL;
+-}
+Index: libjava/java/net/InetAddress.java
+===================================================================
+--- libjava/java/net/InetAddress.java	(Revision 118579)
++++ libjava/java/net/InetAddress.java	(Revision 118580)
+@@ -1,795 +0,0 @@
+-/* InetAddress.java -- Class to model an Internet address
+-   Copyright (C) 1998, 1999, 2002, 2004, 2005  Free Software Foundation, Inc.
+-
+-This file is part of GNU Classpath.
+-
+-GNU Classpath is free software; you can redistribute it and/or modify
+-it under the terms of the GNU General Public License as published by
+-the Free Software Foundation; either version 2, or (at your option)
+-any later version.
+-
+-GNU Classpath is distributed in the hope that it will be useful, but
+-WITHOUT ANY WARRANTY; without even the implied warranty of
+-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-General Public License for more details.
+-
+-You should have received a copy of the GNU General Public License
+-along with GNU Classpath; see the file COPYING.  If not, write to the
+-Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+-02110-1301 USA.
+-
+-Linking this library statically or dynamically with other modules is
+-making a combined work based on this library.  Thus, the terms and
+-conditions of the GNU General Public License cover the whole
+-combination.
+-
+-As a special exception, the copyright holders of this library give you
+-permission to link this library with independent modules to produce an
+-executable, regardless of the license terms of these independent
+-modules, and to copy and distribute the resulting executable under
+-terms of your choice, provided that you also meet, for each linked
+-independent module, the terms and conditions of the license of that
+-module.  An independent module is a module which is not derived from
+-or based on this library.  If you modify this library, you may extend
+-this exception to your version of the library, but you are not
+-obligated to do so.  If you do not wish to do so, delete this
+-exception statement from your version. */
+-
+-
+-package java.net;
+-
+-import gnu.classpath.Configuration;
+-
+-import java.io.IOException;
+-import java.io.ObjectInputStream;
+-import java.io.ObjectOutputStream;
+-import java.io.ObjectStreamException;
+-import java.io.Serializable;
+-
+-/**
+- * This class models an Internet address.  It does not have a public
+- * constructor.  Instead, new instances of this objects are created
+- * using the static methods getLocalHost(), getByName(), and
+- * getAllByName().
+- *
+- * <p>This class fulfills the function of the C style functions gethostname(),
+- * gethostbyname(), and gethostbyaddr().  It resolves Internet DNS names
+- * into their corresponding numeric addresses and vice versa.</p>
+- *
+- * @author Aaron M. Renn (arenn@urbanophile.com)
+- * @author Per Bothner
+- *
+- * @specnote This class is not final since JK 1.4
+- */
+-public class InetAddress implements Serializable
+-{
+-  private static final long serialVersionUID = 3286316764910316507L;
+-
+-  /**
+-   * Dummy InetAddress, used to bind socket to any (all) network interfaces.
+-   */
+-  static InetAddress ANY_IF;
+-    
+-  private static final byte[] loopbackAddress = { 127, 0, 0, 1 };
+-
+-  private static final InetAddress loopback 
+-    = new Inet4Address(loopbackAddress, "localhost");
+-
+-  private static InetAddress localhost = null;
+-
+-  static
+-  {
+-    // load the shared library needed for name resolution
+-    if (Configuration.INIT_LOAD_LIBRARY)
+-      System.loadLibrary("javanet");
+-    
+-    byte[] zeros = { 0, 0, 0, 0 };
+-    ANY_IF = new Inet4Address(zeros, "0.0.0.0");
+-  }
+-
+-  /**
+-   * The Serialized Form specifies that an int 'address' is saved/restored.
+-   * This class uses a byte array internally so we'll just do the conversion
+-   * at serialization time and leave the rest of the algorithm as is.
+-   */
+-  private int address;
+-
+-  /**
+-   * An array of octets representing an IP address.
+-   */
+-  transient byte[] addr;
+-
+-  /**
+-   * The name of the host for this address.
+-   */
+-  String hostName;
+-
+-  /**
+-   * The field 'family' seems to be the AF_ value.
+-   * FIXME: Much of the code in the other java.net classes does not make
+-   * use of this family field.  A better implementation would be to make
+-   * use of getaddrinfo() and have other methods just check the family
+-   * field rather than examining the length of the address each time.
+-   */
+-  int family;
+-
+-  /**
+-   * Initializes this object's addr instance variable from the passed in
+-   * byte array.  Note that this constructor is protected and is called
+-   * only by static methods in this class.
+-   *
+-   * @param ipaddr The IP number of this address as an array of bytes
+-   * @param hostname The hostname of this IP address.
+-   */
+-  InetAddress(byte[] ipaddr, String hostname)
+-  {
+-    addr = (null == ipaddr) ? null : (byte[]) ipaddr.clone();
+-    hostName = hostname;
+-    
+-    if (ipaddr != null)
+-      family = getFamily(ipaddr);
+-  }
+-
+-  /**
+-   * Returns true if this address is a multicast address, false otherwise.
+-   * An address is multicast if the high four bits are "1110".  These are
+-   * also known as "Class D" addresses.
+-   *
+-   * @return true if mulitcast, false if not
+-   *
+-   * @since 1.1
+-   */
+-  public boolean isMulticastAddress()
+-  {
+-    // Mask against high order bits of 1110
+-    if (addr.length == 4)
+-      return (addr[0] & 0xf0) == 0xe0;
+-
+-    // Mask against high order bits of 11111111
+-    if (addr.length == 16)
+-      return addr [0] == (byte) 0xFF;
+-    
+-    return false;
+-  }
+-
+-  /**
+-   * Utility routine to check if the InetAddress in a wildcard address
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isAnyLocalAddress()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    return equals(ANY_IF);
+-  }
+-
+-  /**
+-   * Utility routine to check if the InetAddress is a loopback address
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isLoopbackAddress()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    return (addr[0] & 0xff) == 0x7f;
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a link local address
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isLinkLocalAddress()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a site local address
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isSiteLocalAddress()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-
+-    // 10.0.0.0/8
+-    if ((addr[0] & 0xff) == 0x0a)
+-      return true;
+-
+-    // 172.16.0.0/12
+-    if ((addr[0] & 0xff) == 0xac && (addr[1] & 0xf0) == 0x10)
+-      return true;
+-
+-    // 192.168.0.0/16
+-    if ((addr[0] & 0xff) == 0xc0 && (addr[1] & 0xff) == 0xa8)
+-      return true;
+-
+-    // XXX: Do we need to check more addresses here ?
+-    return false;
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a global multicast address
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isMCGlobal()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a node local multicast address.
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isMCNodeLocal()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a link local multicast address.
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isMCLinkLocal()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    if (! isMulticastAddress())
+-      return false;
+-
+-    return ((addr[0] & 0xff) == 0xe0
+-	    && (addr[1] & 0xff)  == 0x00
+-	    && (addr[2] & 0xff)  == 0x00);
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a site local multicast address.
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isMCSiteLocal()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
+-  }
+-
+-  /**
+-   * Utility routine to check if InetAddress is a organization local
+-   * multicast address.
+-   *
+-   * @since 1.4
+-   */
+-  public boolean isMCOrgLocal()
+-  {
+-    // This is the IPv4 implementation.
+-    // Any class derived from InetAddress should override this.
+-    // XXX: This seems to not exist with IPv4 addresses
+-    return false;
+-  }
+-
+-  /**
+-   * Returns the hostname for this address.  This will return the IP address
+-   * as a String if there is no hostname available for this address
+-   *
+-   * @return The hostname for this address
+-   */
+-  public String getHostName()
+-  {
+-    if (hostName != null)
+-      return hostName;
+-
+-    // Lookup hostname and set field.
+-    lookup (null, this, false);
+-    
+-    return hostName;
+-  }
+-
+-  /**
+-   * Returns the canonical hostname represented by this InetAddress
+-   * 
+-   * @since 1.4
+-   */
+-  public String getCanonicalHostName()
+-  {
+-    SecurityManager sm = System.getSecurityManager();
+-    if (sm != null)
+-      {
+-        try
+-	  {
+-            sm.checkConnect(hostName, -1);
+-	  }
+-	catch (SecurityException e)
+-	  {
+-	    return getHostAddress();
+-	  }
+-      }
+-
+-    // Try to find the FDQN now
+-    InetAddress address;
+-    byte[] ipaddr = getAddress();
+-
+-    if (ipaddr.length == 16)
+-      address = new Inet6Address(getAddress(), null);
+-    else
+-      address = new Inet4Address(getAddress(), null);
+-
+-    return address.getHostName();
+-  }
+-
+-  /**
+-   * Returns the IP address of this object as a byte array.
+-   *
+-   * @return IP address
+-   */
+-  public byte[] getAddress()
+-  {
+-    // An experiment shows that JDK1.2 returns a different byte array each
+-    // time.  This makes sense, in terms of security.
+-    return (byte[]) addr.clone();
+-  }
+-
+-  /* Helper function due to a CNI limitation.  */
+-  private static InetAddress[] allocArray (int count)
+-  {
+-    return new InetAddress [count];
+-  }
+-
+-  /* Helper function due to a CNI limitation.  */
+-  private static SecurityException checkConnect (String hostname)
+-  {
+-    SecurityManager s = System.getSecurityManager();
+-    
+-    if (s == null)
+-      return null;
+-    
+-    try
+-      {
+-	s.checkConnect (hostname, -1);
+-	return null;
+-      }
+-    catch (SecurityException ex)
+-      {
+-	return ex;
+-      }
+-  }
+-
+-  /**
+-   * Returns the IP address of this object as a String.  The address is in
+-   * the dotted octet notation, for example, "127.0.0.1".
+-   *
+-   * @return The IP address of this object in String form
+-   *
+-   * @since 1.0.2
+-   */
+-  public String getHostAddress()
+-  {
+-    StringBuffer sb = new StringBuffer(40);
+-
+-    int len = addr.length;
+-    int i = 0;
+-    
+-    if (len == 16)
+-      { // An IPv6 address.
+-	for ( ; ; i += 2)
+-	  {
+-	    if (i >= 16)
+-	      return sb.toString();
+-	    
+-	    int x = ((addr [i] & 0xFF) << 8) | (addr [i + 1] & 0xFF);
+-	    boolean empty = sb.length() == 0;
+-	    
+-	    if (empty)
+-	      {
+-		if (i == 10 && x == 0xFFFF)
+-		  { // IPv4-mapped IPv6 address.
+-		    sb.append (":FFFF:");
+-		    break;  // Continue as IPv4 address;
+-		  }
+-		else if (i == 12)
+-		  { // IPv4-compatible IPv6 address.
+-		    sb.append (':');
+-		    break;  // Continue as IPv4 address.
+-		  }
+-		else if (i > 0)
+-		  sb.append ("::");
+-	      }
+-	    else
+-	      sb.append (':');
+-	    
+-	    if (x != 0 || i >= 14)
+-	      sb.append (Integer.toHexString (x).toUpperCase());
+-	  }
+-      }
+-    
+-    for ( ; ; )
+-      {
+-        sb.append(addr[i] & 0xff);
+-        i++;
+-	
+-        if (i == len)
+-          break;
+-	
+-        sb.append('.');
+-      }
+-
+-    return sb.toString();
+-  }
+-
+-  /**
+-   * Returns a hash value for this address.  Useful for creating hash
+-   * tables.  Overrides Object.hashCode()
+-   *
+-   * @return A hash value for this address.
+-   */
+-  public int hashCode()
+-  {
+-    // There hashing algorithm is not specified, but a simple experiment
+-    // shows that it is equal to the address, as a 32-bit big-endian integer.
+-    int hash = 0;
+-    int len = addr.length;
+-    int i = len > 4 ? len - 4 : 0;
+-
+-    for (; i < len; i++)
+-      hash = (hash << 8) | (addr[i] & 0xff);
+-
+-    return hash;
+-  }
+-
+-  /**
+-   * Tests this address for equality against another InetAddress.  The two
+-   * addresses are considered equal if they contain the exact same octets.
+-   * This implementation overrides Object.equals()
+-   *
+-   * @param obj The address to test for equality
+-   *
+-   * @return true if the passed in object's address is equal to this one's,
+-   * false otherwise
+-   */
+-  public boolean equals(Object obj)
+-  {
+-    if (! (obj instanceof InetAddress))
+-      return false;
+-
+-    // "The Java Class Libraries" 2nd edition says "If a machine has
+-    // multiple names instances of InetAddress for different name of
+-    // that same machine are not equal.  This is because they have
+-    // different host names."  This violates the description in the
+-    // JDK 1.2 API documentation.  A little experimentation
+-    // shows that the latter is correct.
+-    byte[] addr2 = ((InetAddress) obj).addr;
+-
+-    if (addr.length != addr2.length)
+-      return false;
+-
+-    for (int i = 0; i < addr.length; i++)
+-      if (addr[i] != addr2[i])
+-	return false;
+-
+-    return true;
+-  }
+-
+-  /**
+-   * Converts this address to a String.  This string contains the IP in
+-   * dotted decimal form. For example: "127.0.0.1"  This method is equivalent
+-   * to getHostAddress() and overrides Object.toString()
+-   *
+-   * @return This address in String form
+-   */
+-  public String toString()
+-  {
+-    String addr = getHostAddress();
+-    String host = (hostName != null) ? hostName : "";
+-    return host + "/" + addr;
+-  }
+-
+-  /**
+-   * Returns an InetAddress object given the raw IP address.
+-   *
+-   * The argument is in network byte order: the highest order byte of the
+-   * address is in getAddress()[0].
+-   *
+-   * @param addr The IP address to create the InetAddress object from
+-   *
+-   * @exception UnknownHostException If IP address has illegal length
+-   *
+-   * @since 1.4
+-   */
+-  public static InetAddress getByAddress(byte[] addr)
+-    throws UnknownHostException
+-  {
+-    return getByAddress(null, addr);
+-  }
+-
+-  /**
+-   * Creates an InetAddress based on the provided host name and IP address.
+-   * No name service is checked for the validity of the address.
+-   *
+-   * @param host The hostname of the InetAddress object to create
+-   * @param addr The IP address to create the InetAddress object from
+-   *
+-   * @exception UnknownHostException If IP address is of illegal length
+-   *
+-   * @since 1.4
+-   */
+-  public static InetAddress getByAddress(String host, byte[] addr)
+-    throws UnknownHostException
+-  {
+-    if (addr.length == 4)
+-      return new Inet4Address(addr, host);
+-
+-    if (addr.length == 16)
+-      return new Inet6Address(addr, host);
+-
+-    throw new UnknownHostException("IP address has illegal length");
+-  }
+-
+-  /**
+-   * If hostname is a valid numeric IP address, return the numeric address.
+-   * Otherwise, return null.
+-   *
+-   * @param hostname the name of the host
+-   */
+-  private static native byte[] aton(String hostname);
+-
+-  /**
+-   * Looks up all addresses of a given host.
+-   *
+-   * @param hostname the host to lookup
+-   * @param ipaddr the IP address to lookup
+-   * @param all return all known addresses for one host
+-   *
+-   * @return an array with all found addresses
+-   */
+-  private static native InetAddress[] lookup (String hostname,
+-		                              InetAddress ipaddr, boolean all);
+-
+-  /**
+-   * Returns tha family type of an IP address.
+-   *
+-   * @param addr the IP address
+-   *
+-   * @return the family
+-   */
+-  private static native int getFamily (byte[] ipaddr);
+-
+-  /**
+-   * Returns an InetAddress object representing the IP address of the given
+-   * hostname.  This name can be either a hostname such as "www.urbanophile.com"
+-   * or an IP address in dotted decimal format such as "127.0.0.1".  If the
+-   * hostname is null or "", the hostname of the local machine is supplied by
+-   * default.  This method is equivalent to returning the first element in
+-   * the InetAddress array returned from GetAllByName.
+-   *
+-   * @param hostname The name of the desired host, or null for the local 
+-   * loopback address.
+-   *
+-   * @return The address of the host as an InetAddress object.
+-   *
+-   * @exception UnknownHostException If no IP address for the host could
+-   * be found
+-   * @exception SecurityException If a security manager exists and its
+-   * checkConnect method doesn't allow the operation
+-   */
+-  public static InetAddress getByName(String hostname)
+-    throws UnknownHostException
+-  {
+-    // If null or the empty string is supplied, the loopback address
+-    // is returned. Note that this is permitted without a security check.
+-    if (hostname == null || hostname.length() == 0)
+-      return loopback;
+-
+-    SecurityManager s = System.getSecurityManager();
+-    if (s != null)
+-      s.checkConnect(hostname, -1);
+-
+-    // Assume that the host string is an IP address
+-    byte[] address = aton(hostname);
+-    if (address != null)
+-      {
+-        if (address.length == 4)
+-          return new Inet4Address (address, null);
+-        else if (address.length == 16)
+-          {
+-	    if ((address [10] == 0xFF) && (address [11] == 0xFF))
+-	      {
+-		byte[] ip4addr = new byte [4];
+-		ip4addr [0] = address [12];
+-		ip4addr [1] = address [13];
+-		ip4addr [2] = address [14];
+-		ip4addr [3] = address [15];
+-		return new Inet4Address (ip4addr, null);
+-	      }
+-            return new Inet6Address (address, null);
+-	  }
+-	else
+-          throw new UnknownHostException ("Address has invalid length");
+-      }
+-
+-    // Try to resolve the host by DNS
+-    InetAddress result = new InetAddress(null, null);
+-    lookup (hostname, result, false);
+-    return result;
+-  }
+-
+-  /**
+-   * Returns an array of InetAddress objects representing all the host/ip
+-   * addresses of a given host, given the host's name.  This name can be
+-   * either a hostname such as "www.urbanophile.com" or an IP address in
+-   * dotted decimal format such as "127.0.0.1".  If the value is null, the
+-   * hostname of the local machine is supplied by default.
+-   *
+-   * @param hostname The name of the desired host, or null for the
+-   * local loopback address.
+-   *
+-   * @return All addresses of the host as an array of InetAddress objects.
+-   *
+-   * @exception UnknownHostException If no IP address for the host could
+-   * be found
+-   * @exception SecurityException If a security manager exists and its
+-   * checkConnect method doesn't allow the operation
+-   */
+-  public static InetAddress[] getAllByName(String hostname)
+-    throws UnknownHostException
+-  {
+-    // If null or the empty string is supplied, the loopback address
+-    // is returned. Note that this is permitted without a security check.
+-    if (hostname == null || hostname.length() == 0)
+-      return new InetAddress[] {loopback};
+-
+-    SecurityManager s = System.getSecurityManager();
+-    if (s != null)
+-      s.checkConnect(hostname, -1);
+-
+-    // Check if hostname is an IP address
+-    byte[] address = aton (hostname);
+-    if (address != null)
+-      {
+-	InetAddress[] result = new InetAddress [1];
+-	result [0] = new InetAddress (address, null);
+-	return result;
+-      }
+-
+-    // Try to resolve the hostname by DNS
+-    return lookup (hostname, null, true);
+-  }
+-
+-  /**
+-   * This native method looks up the hostname of the local machine
+-   * we are on.  If the actual hostname cannot be determined, then the
+-   * value "localhost" will be used.  This native method wrappers the
+-   * "gethostname" function.
+-   *
+-   * @return The local hostname.
+-   */
+-  private static native String getLocalHostname();
+-
+-  /**
+-   * Returns an InetAddress object representing the address of the current
+-   * host.
+-   *
+-   * @return The local host's address
+-   *
+-   * @exception UnknownHostException If no IP address for the host could
+-   * be found
+-   */
+-  public static InetAddress getLocalHost() throws UnknownHostException
+-  {
+-    SecurityManager s = System.getSecurityManager();
+-    
+-    // Experimentation shows that JDK1.2 does cache the result.
+-    // However, if there is a security manager, and the cached result
+-    // is other than "localhost", we need to check again.
+-    if (localhost == null
+-	|| (s != null && ! localhost.isLoopbackAddress()))
+-      getLocalHost (s);
+-    
+-    return localhost;
+-  }
+-
+-  private static synchronized void getLocalHost (SecurityManager s)
+-    throws UnknownHostException
+-  {
+-    // Check the localhost cache again, now that we've synchronized.
+-    if (s == null && localhost != null)
+-      return;
+-    
+-    String hostname = getLocalHostname();
+-    
+-    if (s != null)
+-      {
+-	// "The Java Class Libraries" suggests that if the security
+-	// manager disallows getting the local host name, then
+-	// we use the loopback host.
+-	// However, the JDK 1.2 API claims to throw SecurityException,
+-	// which seems to suggest SecurityException is *not* caught.
+-	// In this case, experimentation shows that former is correct.
+-	try
+-	  {
+-	    // This is wrong, if the name returned from getLocalHostname()
+-	    // is not a fully qualified name.  FIXME.
+-	    s.checkConnect (hostname, -1);
+-	  }
+-	catch (SecurityException ex)
+-	  {
+-	    hostname = null;
+-	  }
+-      }
+-    
+-    if (hostname != null && hostname.length() != 0)
+-      {
+-	try
+-	  {
+-	    localhost = new InetAddress (null, null);
+-	    lookup (hostname, localhost, false);
+-	  }
+-	catch (Exception ex)
+-	  {
+-	    UnknownHostException failure = new UnknownHostException(hostname);
+-	    failure.initCause(ex);
+-	    throw failure;
+-	  }
+-      }
+-    else
+-      throw new UnknownHostException();
+-    
+-    if (localhost == null)
+-      localhost = new InetAddress (loopbackAddress, "localhost");
+-  }
+-
+-  /**
+-   * Needed for serialization
+-   */
+-  private void readResolve() throws ObjectStreamException
+-  {
+-    // FIXME: implement this
+-  }
+-
+-  private void readObject(ObjectInputStream ois)
+-    throws IOException, ClassNotFoundException
+-  {
+-    ois.defaultReadObject();
+-    addr = new byte[4];
+-    addr[3] = (byte) address;
+-
+-    for (int i = 2; i >= 0; --i)
+-      addr[i] = (byte) (address >>= 8);
+-
+-    // Ignore family from serialized data.  Since the saved address is 32 bits
+-    // the deserialized object will have an IPv4 address i.e. AF_INET family.
+-    // FIXME: An alternative is to call the aton method on the deserialized
+-    // hostname to get a new address.  The Serialized Form doc is silent
+-    // on how these fields are used.
+-    family = getFamily (addr);
+-  }
+-
+-  private void writeObject(ObjectOutputStream oos) throws IOException
+-  {
+-    // Build a 32 bit address from the last 4 bytes of a 4 byte IPv4 address
+-    // or a 16 byte IPv6 address.
+-    int len = addr.length;
+-    int i = len - 4;
+-
+-    for (; i < len; i++)
+-      address = address << 8 | (((int) addr[i]) & 0xFF);
+-
+-    oos.defaultWriteObject();
+-  }
+-}
+Index: libjava/java/net/natVMInetAddressPosix.cc
+===================================================================
+--- libjava/java/net/natVMInetAddressPosix.cc	(Revision 0)
++++ libjava/java/net/natVMInetAddressPosix.cc	(Revision 118580)
+@@ -0,0 +1,289 @@
++/* Copyright (C) 2003, 2006  Free Software Foundation
++
++   This file is part of libgcj.
++
++This software is copyrighted work licensed under the terms of the
++Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
++details.  */
++
++#include <config.h>
++
++#ifdef HAVE_UNISTD_H
++#include <unistd.h>
++#endif
++#include <string.h>
++#include <errno.h>
++
++#include <sys/param.h>
++#include <sys/types.h>
++#ifdef HAVE_SYS_SOCKET_H
++#include <sys/socket.h>
++#endif
++#ifdef HAVE_NETINET_IN_H
++#include <netinet/in.h>
++#endif
++#ifdef HAVE_ARPA_INET_H
++#include <arpa/inet.h>
++#endif
++#ifdef HAVE_NETDB_H
++#include <netdb.h>
++#endif
++
++#include <gcj/cni.h>
++#include <jvm.h>
++#include <java/net/VMInetAddress.h>
++#include <java/net/UnknownHostException.h>
++
++#if defined(HAVE_UNAME) && ! defined(HAVE_GETHOSTNAME)
++#include <sys/utsname.h>
++#endif
++
++#ifndef HAVE_GETHOSTNAME_DECL
++extern "C" int gethostname (char *name, int namelen);
++#endif
++
++jstring
++java::net::VMInetAddress::getLocalHostname ()
++{
++  char *chars;
++#ifdef HAVE_GETHOSTNAME
++  char buffer[MAXHOSTNAMELEN];
++  if (gethostname (buffer, MAXHOSTNAMELEN))
++    return NULL;
++  chars = buffer;
++#elif HAVE_UNAME
++  struct utsname stuff;
++  if (uname (&stuff) != 0)
++    return NULL;
++  chars = stuff.nodename;
++#else
++  return NULL;
++#endif
++  // It is admittedly non-optimal to convert the hostname to Unicode
++  // only to convert it back in getByName, but simplicity wins.
++  return JvNewStringUTF (chars);
++}
++
++jbyteArray
++java::net::VMInetAddress::lookupInaddrAny ()
++{
++#if ! HAVE_IN_ADDR_T
++  typedef jint in_addr_t;
++#endif
++  in_addr_t laddr = INADDR_ANY;
++  char *bytes = (char *) &laddr;
++  int blen = sizeof (laddr);
++  jbyteArray result = JvNewByteArray (blen);
++  memcpy (elements (result), bytes, blen);
++  return result;
++}
++
++jstring
++java::net::VMInetAddress::getHostByAddr (jbyteArray addr)
++{
++  struct hostent *hptr = NULL;
++#ifdef HAVE_GETHOSTBYADDR_R
++  struct hostent hent_r;
++#if HAVE_STRUCT_HOSTENT_DATA
++  struct hostent_data fixed_buffer, *buffer_r = &fixed_buffer;
++#else
++#ifdef __GLIBC__
++  // FIXME: in glibc, gethostbyname_r returns NETDB_INTERNAL to herr and
++  // ERANGE to errno if the buffer size is too small, rather than what is 
++  // expected here. We work around this by setting a bigger buffer size and 
++  // hoping that it is big enough.
++  char fixed_buffer[1024];
++#else
++  char fixed_buffer[200];
++#endif /* __GLIBC__ */
++  char *buffer_r = fixed_buffer;
++  int size_r = sizeof (fixed_buffer);
++#endif /* HAVE_STRUCT_HOSTENT_DATA */
++#endif /* HAVE_GETHOSTBYADDR_R */
++
++  char *bytes = (char*) elements (addr);
++  int len = addr->length;
++  int type;
++  char *val;
++  if (len == 4)
++    {
++      val = bytes;
++      type = AF_INET;
++    }
++#ifdef HAVE_INET6
++  else if (len == 16)
++    {
++      val = (char *) &bytes;
++      type = AF_INET6;
++    }
++#endif /* HAVE_INET6 */
++  else
++    JvFail ("unrecognized size");
++
++#ifdef HAVE_GETHOSTBYADDR_R
++  while (true)
++    {
++      int ok;
++#if HAVE_STRUCT_HOSTENT_DATA
++      ok = ! gethostbyaddr_r (val, len, type, &hent_r, buffer_r);
++#else
++      int herr = 0;
++#ifdef GETHOSTBYADDR_R_RETURNS_INT
++      ok = ! gethostbyaddr_r (val, len, type, &hent_r,
++			      buffer_r, size_r, &hptr, &herr);
++#else
++      hptr = gethostbyaddr_r (val, len, type, &hent_r,
++			      buffer_r, size_r, &herr);
++      ok = hptr != NULL;
++#endif /* GETHOSTBYADDR_R_RETURNS_INT */
++      if (! ok && herr == ERANGE)
++	{
++	  size_r *= 2;
++	  buffer_r = (char *) _Jv_AllocBytes (size_r);
++	}
++      else 
++#endif /* HAVE_STRUCT_HOSTENT_DATA */
++	break;
++    }
++#else /* HAVE_GETHOSTBYADDR_R */
++  // FIXME: this is insufficient if some other piece of code calls
++  // this gethostbyaddr.
++  JvSynchronize sync (&java::net::VMInetAddress::class$);
++  hptr = gethostbyaddr (val, len, type);
++#endif /* HAVE_GETHOSTBYADDR_R */
++
++  if (hptr == NULL)
++    throw new java::net::UnknownHostException ();
++
++  return JvNewStringUTF (hptr->h_name);
++}
++
++JArray<jbyteArray> *
++java::net::VMInetAddress::getHostByName (jstring host)
++{
++  struct hostent *hptr = NULL;
++#ifdef HAVE_GETHOSTBYNAME_R
++  struct hostent hent_r;
++#if HAVE_STRUCT_HOSTENT_DATA
++  struct hostent_data fixed_buffer, *buffer_r = &fixed_buffer;
++#else
++#ifdef __GLIBC__
++  // FIXME: in glibc, gethostbyname_r returns NETDB_INTERNAL to herr and
++  // ERANGE to errno if the buffer size is too small, rather than what is 
++  // expected here. We work around this by setting a bigger buffer size and 
++  // hoping that it is big enough.
++  char fixed_buffer[1024];
++#else
++  char fixed_buffer[200];
++#endif /* __GLIBC__ */
++  char *buffer_r = fixed_buffer;
++  int size_r = sizeof (fixed_buffer);
++#endif /* HAVE_STRUCT_HOSTENT_DATA */
++#endif /* HAVE_GETHOSTBYNAME_R */
++
++  char *hostname;
++  char buf[100];
++  int len = JvGetStringUTFLength(host);
++  if (len < 100)
++    hostname = buf;
++  else
++    hostname = (char *) _Jv_AllocBytes (len + 1);
++  JvGetStringUTFRegion (host, 0, host->length(), hostname);
++  buf[len] = '\0';
++#ifdef HAVE_GETHOSTBYNAME_R
++  while (true)
++    {
++      int ok;
++#if HAVE_STRUCT_HOSTENT_DATA
++      ok = ! gethostbyname_r (hostname, &hent_r, buffer_r);
++#else
++      int herr = 0;
++#ifdef GETHOSTBYNAME_R_RETURNS_INT
++      ok = ! gethostbyname_r (hostname, &hent_r, buffer_r, size_r,
++			      &hptr, &herr);
++#else
++      hptr = gethostbyname_r (hostname, &hent_r, buffer_r, size_r, &herr);
++      ok = hptr != NULL;
++#endif /* GETHOSTNAME_R_RETURNS_INT */
++      if (! ok && herr == ERANGE)
++	{
++	  size_r *= 2;
++	  buffer_r = (char *) _Jv_AllocBytes (size_r);
++	}
++      else
++#endif /* HAVE_STRUCT_HOSTENT_DATA */
++	break;
++    }
++#else /* HAVE_GETHOSTBYNAME_R */
++  // FIXME: this is insufficient if some other piece of code calls
++  // this gethostbyname.
++  JvSynchronize sync (&java::net::VMInetAddress::class$);
++  hptr = gethostbyname (hostname);
++#endif /* HAVE_GETHOSTBYNAME_R */
++
++  if (hptr == NULL)
++    throw new java::net::UnknownHostException (host);
++
++  int count = 0;
++  char ** ptr = hptr->h_addr_list;
++  while (*ptr++)  count++;
++
++  JArray<jbyteArray> *result =
++    (JArray<jbyteArray> *) _Jv_NewObjectArray (
++      count, _Jv_GetArrayClass(JvPrimClass(byte), NULL), NULL);
++  jbyteArray* addrs = elements (result);
++
++  for (int i = 0; i < count; i++)
++    {
++      addrs[i] = JvNewByteArray (hptr->h_length);
++      memcpy (elements (addrs[i]), hptr->h_addr_list[i], hptr->h_length);
++    }
++  return result;
++}
++
++jbyteArray
++java::net::VMInetAddress::aton (jstring host)
++{
++  char *hostname;
++  char buf[100];
++  int len = JvGetStringUTFLength(host);
++  if (len < 100)
++    hostname = buf;
++  else
++    hostname = (char *) _Jv_AllocBytes (len+1);
++  JvGetStringUTFRegion (host, 0, host->length(), hostname);
++  buf[len] = '\0';
++  char *bytes = NULL;
++  int blen = 0;
++#ifdef HAVE_INET_ATON
++  struct in_addr laddr;
++  if (inet_aton (hostname, &laddr))
++    {
++      bytes = (char *) &laddr;
++      blen = 4;
++    }
++#elif defined(HAVE_INET_ADDR)
++#if ! HAVE_IN_ADDR_T
++  typedef jint in_addr_t;
++#endif
++  in_addr_t laddr = inet_addr (hostname);
++  if (laddr != (in_addr_t)(-1))
++    {
++      bytes = (char *) &laddr;
++      blen = 4;
++    }
++#endif
++#if defined (HAVE_INET_PTON) && defined (HAVE_INET6)
++  char inet6_addr[16];
++  if (len != 0 && inet_pton (AF_INET6, hostname, inet6_addr) > 0)
++    {
++      bytes = inet6_addr;
++      blen = 16;
++    }
++#endif
++  if (blen == 0)
++    return NULL;
++  jbyteArray result = JvNewByteArray (blen);
++  memcpy (elements (result), bytes, blen);
++  return result;
++}
+Index: libjava/java/net/natVMInetAddressWin32.cc
+===================================================================
+--- libjava/java/net/natVMInetAddressWin32.cc	(Revision 0)
++++ libjava/java/net/natVMInetAddressWin32.cc	(Revision 118580)
+@@ -0,0 +1,121 @@
++/* Copyright (C) 2003, 2006 Free Software Foundation
++
++   This file is part of libgcj.
++
++This software is copyrighted work licensed under the terms of the
++Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
++details.  */
++
++#include <config.h>
++#include <platform.h>
++
++#undef STRICT
++
++#include <java/net/VMInetAddress.h>
++#include <java/net/UnknownHostException.h>
++
++jstring
++java::net::VMInetAddress::getLocalHostname ()
++{
++  char buffer[400];
++  if (gethostname (buffer, sizeof(buffer)))
++    return NULL;
++  // It is admittedly non-optimal to convert the hostname to Unicode
++  // only to convert it back in getByName, but simplicity wins.
++  return JvNewStringUTF (buffer);
++}
++
++jbyteArray
++java::net::VMInetAddress::lookupInaddrAny ()
++{
++  unsigned long laddr = INADDR_ANY;
++  char *bytes = (char *) &laddr;
++  int blen = sizeof (laddr);
++  jbyteArray result = JvNewByteArray (blen);
++  memcpy (elements (result), bytes, blen);
++  return result;
++}
++
++jstring
++java::net::VMInetAddress::getHostByAddr (jbyteArray addr)
++{
++  struct hostent *hptr = NULL;
++  char *bytes = (char*) elements (addr);
++  int len = addr->length;
++  int type;
++  char *val;
++  if (len == 4)
++    {
++      val = bytes;
++      type = AF_INET;
++    }
++#ifdef HAVE_INET6
++  else if (len == 16)
++    {
++      val = (char *) &bytes;
++      type = AF_INET6;
++    }
++#endif /* HAVE_INET6 */
++  else
++    JvFail ("unrecognized size");
++
++  // FIXME: this is insufficient if some other piece of code calls
++  // this gethostbyaddr.
++  JvSynchronize sync (&java::net::VMInetAddress::class$);
++  hptr = gethostbyaddr (val, len, type);
++
++  if (hptr == NULL)
++    throw new java::net::UnknownHostException ();
++
++  return JvNewStringUTF (hptr->h_name);
++}
++
++JArray<jbyteArray> *
++java::net::VMInetAddress::getHostByName (jstring host)
++{
++  struct hostent *hptr = NULL;
++  JV_TEMP_UTF_STRING (hostname, host);
++
++  // FIXME: this is insufficient if some other piece of code calls
++  // this gethostbyname.
++  JvSynchronize sync (&java::net::VMInetAddress::class$);
++  hptr = gethostbyname (hostname);
++
++  if (hptr == NULL)
++    throw new java::net::UnknownHostException (host);
++
++  int count = 0;
++  char ** ptr = hptr->h_addr_list;
++  while (*ptr++)  count++;
++
++  JArray<jbyteArray> *result =
++    (JArray<jbyteArray> *) _Jv_NewObjectArray (
++      count, _Jv_GetArrayClass(JvPrimClass(byte), NULL), NULL);
++  jbyteArray* addrs = elements (result);
++
++  for (int i = 0; i < count; i++)
++    {
++      addrs[i] = JvNewByteArray (hptr->h_length);
++      memcpy (elements (addrs[i]), hptr->h_addr_list[i], hptr->h_length);
++    }
++  return result;
++}
++
++jbyteArray
++java::net::VMInetAddress::aton (jstring host)
++{
++  JV_TEMP_UTF_STRING (hostname, host);
++  char* bytes = NULL;
++  int blen = 0;
++  unsigned long laddr = inet_addr (hostname);
++  if (laddr != INADDR_NONE)
++    {
++      bytes = (char *) &laddr;
++      blen = 4;
++    }
++  if (blen == 0)
++    return NULL;
++  jbyteArray result = JvNewByteArray (blen);
++  memcpy (elements (result), bytes, blen);
++  return result;
++}
+Index: libjava/java/net/natVMInetAddressNoNet.cc
+===================================================================
+--- libjava/java/net/natVMInetAddressNoNet.cc	(Revision 0)
++++ libjava/java/net/natVMInetAddressNoNet.cc	(Revision 118580)
+@@ -0,0 +1,40 @@
++/* Copyright (C) 2003, 2006  Free Software Foundation
++
++   This file is part of libgcj.
++
++This software is copyrighted work licensed under the terms of the
++Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
++details.  */
++
++#include <config.h>
++#include <stddef.h>
++
++jstring
++java::net::VMInetAddress::getLocalHostname ()
++{
++  return NULL;
++}
++
++jbyteArray
++java::net::VMInetAddress::lookupInaddrAny ()
++{
++  return NULL;
++}
++
++jstring
++java::net::VMInetAddress::getHostByAddr (jbyteArray addr)
++{
++  return NULL;
++}
++
++JArray<jbyteArray> *
++java::net::VMInetAddress::getHostByName (jstring host)
++{
++  return NULL;
++}
++
++jbyteArray
++java::net::VMInetAddress::aton (jstring host)
++{
++  return NULL;
++}
+Index: libjava/java/net/natVMNetworkInterfacePosix.cc
+===================================================================
+--- libjava/java/net/natVMNetworkInterfacePosix.cc	(Revision 118579)
++++ libjava/java/net/natVMNetworkInterfacePosix.cc	(Revision 118580)
+@@ -40,7 +40,7 @@
+ 
+ #include <gcj/cni.h>
+ #include <jvm.h>
+-#include <java/net/Inet4Address.h>
++#include <java/net/InetAddress.h>
+ #include <java/net/NetworkInterface.h>
+ #include <java/net/SocketException.h>
+ #include <java/net/VMNetworkInterface.h>
+@@ -148,8 +148,7 @@
+       jbyteArray baddr = JvNewByteArray (len);
+       memcpy (elements (baddr), &(sa.sin_addr), len);
+       jstring if_name = JvNewStringLatin1 (if_record->ifr_name);
+-      Inet4Address* address =
+-        new java::net::Inet4Address (baddr, JvNewStringLatin1 (""));
++      InetAddress* address = java::net::InetAddress::getByAddress (baddr);
+       ht->add (new NetworkInterface (if_name, address));
+       if_record++;
+     }
+Index: libjava/java/net/natVMNetworkInterfaceWin32.cc
+===================================================================
+--- libjava/java/net/natVMNetworkInterfaceWin32.cc	(Revision 118579)
++++ libjava/java/net/natVMNetworkInterfaceWin32.cc	(Revision 118580)
+@@ -12,7 +12,7 @@
+ #undef STRICT
+ 
+ #include <java/net/NetworkInterface.h>
+-#include <java/net/Inet4Address.h>
++#include <java/net/InetAddress.h>
+ #include <java/net/SocketException.h>
+ #include <java/net/VMNetworkInterface.h>
+ #include <java/util/Vector.h>
+@@ -83,8 +83,8 @@
+         }
+ 
+       jstring if_name = _Jv_Win32NewString (szName);
+-      java::net::Inet4Address* address =
+-        new java::net::Inet4Address (baddr, JvNewStringLatin1 (""));
++      java::net::InetAddress* address =
++        java::net::InetAddress::getByAddress (baddr);
+       pjstrName[i] = if_name;
+       ppAddress[i] = address;
+     }
+Index: libjava/java/net/VMInetAddress.java
+===================================================================
+--- libjava/java/net/VMInetAddress.java	(Revision 0)
++++ libjava/java/net/VMInetAddress.java	(Revision 118580)
+@@ -0,0 +1,97 @@
++/* VMInetAddress.java -- Class to model an Internet address
++   Copyright (C) 2005  Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++
++package java.net;
++
++import gnu.classpath.Configuration;
++
++import java.io.Serializable;
++
++class VMInetAddress implements Serializable
++{
++  static
++  {
++    if (Configuration.INIT_LOAD_LIBRARY)
++      System.loadLibrary("javanet");
++  }
++
++  /**
++   * This method looks up the hostname of the local machine
++   * we are on.  If the actual hostname cannot be determined, then the
++   * value "localhost" will be used.  This native method wrappers the
++   * "gethostname" function.
++   *
++   * @return The local hostname.
++   */
++  public static native String getLocalHostname();
++
++  /**
++   * Returns the value of the special address INADDR_ANY
++   */
++  public static native byte[] lookupInaddrAny() throws UnknownHostException;
++
++  /**
++   * This method returns the hostname for a given IP address.  It will
++   * throw an UnknownHostException if the hostname cannot be determined.
++   *
++   * @param ip The IP address as a byte array
++   *
++   * @return The hostname
++   *
++   * @exception UnknownHostException If the reverse lookup fails
++   */
++  public static native String getHostByAddr(byte[] ip)
++    throws UnknownHostException;
++
++  /**
++   * Returns a list of all IP addresses for a given hostname.  Will throw
++   * an UnknownHostException if the hostname cannot be resolved.
++   */
++  public static native byte[][] getHostByName(String hostname)
++    throws UnknownHostException;
++
++  /**
++   * Return the IP address represented by a literal address.
++   * Will return null if the literal address is not valid.
++   *
++   * @param address the name of the host
++   *
++   * @return The IP address as a byte array
++   */
++  public static native byte[] aton(String address);
++}
+Index: libjava/Makefile.am
+===================================================================
+--- libjava/Makefile.am	(Revision 118579)
++++ libjava/Makefile.am	(Revision 118580)
+@@ -890,7 +890,7 @@
+ java/lang/reflect/natField.cc \
+ java/lang/reflect/natMethod.cc \
+ java/net/natVMNetworkInterface.cc \
+-java/net/natInetAddress.cc \
++java/net/natVMInetAddress.cc \
+ java/net/natURLClassLoader.cc \
+ java/nio/channels/natVMChannels.cc \
+ java/nio/natDirectByteBufferImpl.cc \

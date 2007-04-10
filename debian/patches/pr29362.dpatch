@@ -1,0 +1,45 @@
+#! /bin/sh -e
+
+# DP: Fix PR classpath/29362, taken from the redhat/gcc-4_1-branch.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+2006-10-10  Tom Tromey  <tromey@redhat.com>
+
+	PR classpath/29362:
+	* gnu/xml/transform/TransformerImpl.java (transform): Only strip if
+	there is a stylesheet.
+
+Index: libjava/classpath/gnu/xml/transform/TransformerImpl.java
+===================================================================
+--- libjava/classpath/gnu/xml/transform/TransformerImpl.java	(Revision 117612)
++++ libjava/classpath/gnu/xml/transform/TransformerImpl.java	(Revision 117613)
+@@ -327,7 +327,8 @@
+             domDoc.setCheckWellformedness(false);
+           }
+         parent.normalize();
+-        strip(stylesheet, parent);
++        if (stylesheet != null)
++          strip(stylesheet, parent);
+         Document resultDoc = (parent instanceof Document) ?
+           (Document) parent :
+           parent.getOwnerDocument();

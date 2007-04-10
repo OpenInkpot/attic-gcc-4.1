@@ -1,12 +1,12 @@
 #! /bin/sh -e
 
-# DP: CVS updates from the 4.1 branch upto 2005xxxx.
+# DP: SVN updates from the 4.1 branch upto 20070306.
 
 last_updated()
 {
 	cat > ${dir}LAST_UPDATED <<EOF
-Sat Nov 12 23:45:14 UTC 2005
-Sat Nov 12 23:45:14 UTC 2005 (revision 106842)
+Tue Mar  6 21:56:00 CET 2007
+Tue Mar  6 20:56:00 UTC 2007 (revision 122637)
 EOF
 }
 
@@ -21,6 +21,7 @@ fi
 case "$1" in
     -patch)
         patch $pdir -f --no-backup-if-mismatch -p0 < $0
+	touch ${dir}libjava/testsuite/libjava.jni/PR28178.out
 	last_updated
         #cd ${dir}gcc && autoconf
         ;;
@@ -34,3 +35,3247 @@ case "$1" in
 esac
 exit 0
 
+# diff -urN --exclude=.svn gcc_4_1_2_release gcc-4_1-branch
+# svn diff svn://gcc.gnu.org/svn/gcc/tags/gcc_4_1_2_release svn://gcc.gnu.org/svn/gcc/branches/gcc-4_1-branch
+
+Index: gcc/DATESTAMP
+===================================================================
+--- gcc/DATESTAMP	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/DATESTAMP	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1 +1 @@
+-20070214
++20070306
+Index: gcc/loop.c
+===================================================================
+--- gcc/loop.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/loop.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -6493,13 +6493,13 @@
+ 	      v->ignore = 1;
+ 	      bl->all_reduced = 0;
+ 	    }
+-	  else if (!v->always_computable
++	  else if (! v->always_executed
+ 		   && (may_trap_or_fault_p (v->add_val)
+ 		       || may_trap_or_fault_p (v->mult_val)))
+ 	    {
+ 	      if (loop_dump_stream)
+ 		fprintf (loop_dump_stream,
+-			 "giv of insn %d: not always computable.\n",
++			 "giv of insn %d: not always executed.\n",
+ 			 INSN_UID (v->insn));
+ 	      v->ignore = 1;
+ 	      bl->all_reduced = 0;
+@@ -8700,6 +8700,10 @@
+ {
+   rtx comb, ret;
+ 
++  /* We cannot combine givs that are not always in sync.  */
++  if (!g1->always_executed || !g2->always_executed)
++    return NULL_RTX;
++
+   /* With the introduction of ext dependent givs, we must care for modes.
+      G2 must not use a wider mode than G1.  */
+   if (GET_MODE_SIZE (g1->mode) < GET_MODE_SIZE (g2->mode))
+@@ -8708,6 +8712,7 @@
+   ret = comb = express_from (g1, g2);
+   if (comb == NULL_RTX)
+     return NULL_RTX;
++
+   if (g1->mode != g2->mode)
+     ret = gen_lowpart (g2->mode, comb);
+ 
+@@ -8718,9 +8723,7 @@
+      combination to be the other way round.  */
+   if (comb == g1->dest_reg
+       && (g1->giv_type == DEST_REG || g2->giv_type == DEST_ADDR))
+-    {
+-      return ret;
+-    }
++    return ret;
+ 
+   /* If G2 can be expressed as a function of G1 and that function is valid
+      as an address and no more expensive than using a register for G2,
+Index: gcc/builtins.c
+===================================================================
+--- gcc/builtins.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/builtins.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -9935,6 +9935,7 @@
+   /* Get the destination string and the format specifier.  */
+   dest = TREE_VALUE (arglist);
+   fmt = TREE_VALUE (TREE_CHAIN (arglist));
++  arglist = TREE_CHAIN (TREE_CHAIN (arglist));
+ 
+   /* Check whether the format is a literal string constant.  */
+   fmt_str = c_getstr (fmt);
+@@ -9955,6 +9956,10 @@
+       if (!fn)
+ 	return NULL_TREE;
+ 
++      /* Don't optimize sprintf (buf, "abc", ptr++).  */
++      if (arglist)
++	return NULL_TREE;
++
+       /* Convert sprintf (str, fmt) into strcpy (str, fmt) when
+ 	 'format' is known to contain no % formats.  */
+       arglist = build_tree_list (NULL_TREE, fmt);
+@@ -9973,8 +9978,12 @@
+       if (!fn)
+ 	return NULL_TREE;
+ 
++      /* Don't crash on sprintf (str1, "%s").  */
++      if (!arglist)
++	return NULL_TREE;
++
+       /* Convert sprintf (str1, "%s", str2) into strcpy (str1, str2).  */
+-      orig = TREE_VALUE (TREE_CHAIN (TREE_CHAIN (arglist)));
++      orig = TREE_VALUE (arglist);
+       arglist = build_tree_list (NULL_TREE, orig);
+       arglist = tree_cons (NULL_TREE, dest, arglist);
+       if (!ignored)
+Index: gcc/fold-const.c
+===================================================================
+--- gcc/fold-const.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fold-const.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,6 +1,7 @@
+ /* Fold a constant sub-tree into a single node for C-compiler
+    Copyright (C) 1987, 1988, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
+-   2000, 2001, 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
++   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
++   Free Software Foundation, Inc.
+ 
+ This file is part of GCC.
+ 
+@@ -8068,6 +8069,53 @@
+ 	  return omit_one_operand (type, t1, arg0);
+ 	}
+ 
++      /* Canonicalize (X & C1) | C2.  */
++      if (TREE_CODE (arg0) == BIT_AND_EXPR
++	  && TREE_CODE (arg1) == INTEGER_CST
++	  && TREE_CODE (TREE_OPERAND (arg0, 1)) == INTEGER_CST)
++	{
++	  unsigned HOST_WIDE_INT hi1, lo1, hi2, lo2, mlo, mhi;
++	  int width = TYPE_PRECISION (type);
++	  hi1 = TREE_INT_CST_HIGH (TREE_OPERAND (arg0, 1));
++	  lo1 = TREE_INT_CST_LOW (TREE_OPERAND (arg0, 1));
++	  hi2 = TREE_INT_CST_HIGH (arg1);
++	  lo2 = TREE_INT_CST_LOW (arg1);
++
++	  /* If (C1&C2) == C1, then (X&C1)|C2 becomes (X,C2).  */
++	  if ((hi1 & hi2) == hi1 && (lo1 & lo2) == lo1)
++	    return omit_one_operand (type, arg1, TREE_OPERAND (arg0, 0));
++
++	  if (width > HOST_BITS_PER_WIDE_INT)
++	    {
++	      mhi = (unsigned HOST_WIDE_INT) -1 
++		    >> (2 * HOST_BITS_PER_WIDE_INT - width);
++	      mlo = -1;
++	    }
++	  else
++	    {
++	      mhi = 0;
++	      mlo = (unsigned HOST_WIDE_INT) -1
++		    >> (HOST_BITS_PER_WIDE_INT - width);
++	    }
++
++	  /* If (C1|C2) == ~0 then (X&C1)|C2 becomes X|C2.  */
++	  if ((~(hi1 | hi2) & mhi) == 0 && (~(lo1 | lo2) & mlo) == 0)
++	    return fold_build2 (BIT_IOR_EXPR, type,
++				TREE_OPERAND (arg0, 0), arg1);
++
++	  /* Minimize the number of bits set in C1, i.e. C1 := C1 & ~C2.  */
++	  hi1 &= mhi;
++	  lo1 &= mlo;
++	  if ((hi1 & ~hi2) != hi1 || (lo1 & ~lo2) != lo1)
++	    return fold_build2 (BIT_IOR_EXPR, type,
++				fold_build2 (BIT_AND_EXPR, type,
++					     TREE_OPERAND (arg0, 0),
++					     build_int_cst_wide (type,
++								 lo1 & ~lo2,
++								 hi1 & ~hi2)),
++				arg1);
++	}
++
+       t1 = distribute_bit_expr (code, type, arg0, arg1);
+       if (t1 != NULL_TREE)
+ 	return t1;
+@@ -8210,6 +8258,16 @@
+ 	  && operand_equal_p (arg0, TREE_OPERAND (arg1, 0), 0))
+ 	return omit_one_operand (type, integer_zero_node, arg0);
+ 
++      /* Canonicalize (X | C1) & C2 as (X & C2) | (C1 & C2).  */
++      if (TREE_CODE (arg0) == BIT_IOR_EXPR
++	  && TREE_CODE (arg1) == INTEGER_CST
++	  && TREE_CODE (TREE_OPERAND (arg0, 1)) == INTEGER_CST)
++	return fold_build2 (BIT_IOR_EXPR, type,
++			    fold_build2 (BIT_AND_EXPR, type,
++					 TREE_OPERAND (arg0, 0), arg1),
++			    fold_build2 (BIT_AND_EXPR, type,
++					 TREE_OPERAND (arg0, 1), arg1));
++
+       t1 = distribute_bit_expr (code, type, arg0, arg1);
+       if (t1 != NULL_TREE)
+ 	return t1;
+Index: gcc/params.h
+===================================================================
+--- gcc/params.h	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/params.h	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -147,4 +147,6 @@
+   PARAM_VALUE (PARAM_VIRTUAL_MAPPINGS_TO_SYMS_RATIO)
+ #define MAX_FIELDS_FOR_FIELD_SENSITIVE \
+   ((size_t) PARAM_VALUE (PARAM_MAX_FIELDS_FOR_FIELD_SENSITIVE))
++#define MAX_SCHED_READY_INSNS \
++  PARAM_VALUE (PARAM_MAX_SCHED_READY_INSNS)
+ #endif /* ! GCC_PARAMS_H */
+Index: gcc/DEV-PHASE
+===================================================================
+--- gcc/DEV-PHASE	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/DEV-PHASE	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1 @@
++prerelease
+Index: gcc/ChangeLog
+===================================================================
+--- gcc/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,144 @@
++2007-03-05  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	* pa.md: In unamed move patterns, disparge copies between general
++	and floating point registers using '?' modifier.  Don't include 'f'
++	constraint for register preferences in DImode, SImode, HImode and
++	QImode patterns.  Likewise for 'r' in DFmode and SFmode patterns.
++	Remove constraints for copies between general and floating registers
++	in soft-float DFmode pattern.
++	(movdf): Fail if operand1 is a CONST_DOUBLE and operand0 is a hard
++	floating register.
++	(movsf): Likewise. 
++
++2007-02-27  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	* pa/predicates.md (move_src_operand): Allow zero for mode.
++	* pa/pa.md: Fix constraints for zero CONST_DOUBLE in 64-bit DFmode
++	move pattern.
++
++2007-02-27  Eric Botcazou  <ebotcazou@libertysurf.fr>
++
++	PR rtl-optimization/30931
++	* loop.c (combine_givs_p): Return false if either GIV is not
++	always executed.
++
++2007-02-21 Ira Rosen  <irar@il.ibm.com>
++
++	* Makefile.in (tree-ssa-alias.o): Depend on pointer-set.h.
++
++2007-02-20 Ira Rosen  <irar@il.ibm.com>
++
++	* tree-ssa-alias.c: Include pointer-set.h. 
++	(may_aliases_intersect): Use the correct type (varray) for
++	may_aliases sets.
++
++2007-02-18  Kaz Kojima  <kkojima@gcc.gnu.org>
++
++	Backport from mainline.
++	PR rtl-optimization/29599
++	* reload1.c (eliminate_regs_in_insn): Take the destination
++	mode into account when computing the offset.
++
++2007-02-18  Roger Sayle  <roger@eyesopen.com>
++
++	Backport from mainline.
++	PR middle-end/24427
++	PR rtl-optimization/28173
++	* fold-const.c (fold_binary) <BIT_IOR_EXPR>: Transform (X&C1)|C2
++	into (X,C2) if C1 is a subset of the bits of C2.  Transform
++	(X&C1)|C2 into X|C2 if C1|C2 == ~0.  Canonicalize (X&C1)|C2 as
++	(X&(C1&~C2))|C2.
++	<BIT_AND_EXPR>: Canonicalize (X|C1)&C2 as (X&C2)|(C1&C2).
++
++2007-02-18 Ira Rosen  <irar@il.ibm.com>
++
++	* tree-ssa-alias.c (may_aliases_intersect): New function.
++	* tree-data-ref.c (ptr_ptr_may_alias_p): Call may_aliases_intersect 
++	for different tags.
++	* tree-flow.h (may_aliases_intersect): Add function declaration.
++
++2007-02-17  Alexandre Oliva  <aoliva@redhat.com>
++
++	PR tree-optimization/30823
++	* tree-sra.c (sra_build_assignment): Drop type-checking assert.
++
++2007-02-16  Guy Martin  <gmsoft@gentoo.org>
++
++	* pa.md (tp_load): Correct mfctl instruction syntax.
++
++2007-02-16  Eric Botcazou  <ebotcazou@libertysurf.fr>
++
++	PR rtl-optimization/30787
++	* loop.c (strength_reduce): Don't reduce giv that is not always
++	executed and where add_val or mult_val can trap.
++
++2007-02-16  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
++
++	PR other/27843
++	* Makefile.in (SYSTEM_HEADER_DIR): Use single quotes to avoid
++	nested double- and backquotes.
++
++2007-02-15  Anatoly Sokolov <aesok@post.ru>
++
++	PR target/19087
++	* config/avr/avr.c (DWARF2_ADDR_SIZE): Define.
++	
++2007-02-15  Bob Wilson  <bob.wilson@acm.org>
++
++	* config/xtensa/xtensa.c (constantpool_mem_p): Skip over SUBREGs.
++
++2007-02-15  Alexandre Oliva  <aoliva@redhat.com>
++
++	* tree-sra.c (instantiate_missing_elements): Canonicalize
++	bit-field types.
++	(sra_build_assignment): New.
++	(generate_copy_inout, generate_element_copy,
++	generate_element_zero, generate_one_element_init): Use it.
++
++2007-02-15  Alexandre Oliva  <aoliva@redhat.com>
++
++	PR debug/30189
++	* dwarf2out.c (modified_type_die): Follow DECL_ORIGINAL_TYPE
++	even if cv-qualification is the same.
++
++2007-02-14  Eric Botcazou  <ebotcazou@adacore.com>
++            Maxim Kuvyrkov <mkuvyrkov@ispras.ru>
++
++	PR rtl-optimization/28772
++	* Makefile.in (haifa-sched.o): Add dependency on $(PARAMS_H).
++
++	Backport from mainline:
++	2006-04-13  Eric Botcazou  <ebotcazou@adacore.com>
++
++	* params.def (PARAM_MAX_SCHED_READY_INSNS): New parameter,
++	defaulting to 100.
++	* params.h (MAX_SCHED_READY_INSNS): New macro.
++	* haifa-sched.c: (queue_to_ready): Re-queue insns for the next cycle
++	past MAX_SCHED_READY_INSNS during the first scheduling pass.
++	(schedule_block): Delay insns past MAX_SCHED_READY_INSNS in
++	the ready list for 1 cycle during the first scheduling pass.
++	* doc/invoke.texi (--param): New parameter max-sched-ready-insns.
++
++2007-02-14  Jakub Jelinek  <jakub@redhat.com>
++
++	PR middle-end/30473
++	* builtins.c (fold_builtin_sprintf): Do not attempt to optimize
++	sprintf (str, "%s").  Do not optimize sprintf (str, "nopercent", p++).
++
++2007-02-14  Richard Guenther  <rguenther@suse.de>
++
++	Backport from mainline:
++	2007-01-30  Richard Guenther  <rguenther@suse.de>
++
++	PR middle-end/30313
++	* passes.c (execute_one_pass): Reset in_gimple_form to not
++	confuse non-unit-at-a-time mode.
++
++2007-02-14  Mark Mitchell  <mark@codesourcery.com>
++
++	* DEV-PHASE: Set to prerelease.
++	* BASE-VER: Increment.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+@@ -498,7 +639,7 @@
+ 2006-11-02  Eric Botcazou  <ebotcazou@libertysurf.fr>
+ 
+ 	* doc/install.texi (sparc-sun-solaris2*): Update GMP/MPFR build
+-	instructions.
++
+ 	(sparc64-sun-solaris2*): Likewise.
+ 
+ 2006-11-02  Zdenek Dvorak <dvorakz@suse.cz>
+Index: gcc/testsuite/gcc.c-torture/execute/20070216-1.c
+===================================================================
+--- gcc/testsuite/gcc.c-torture/execute/20070216-1.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.c-torture/execute/20070216-1.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,23 @@
++/* PR rtl-optimization/30787 */
++/* Testcase by Jakub Jelinek <jakub@gcc.gnu.org> */
++
++struct S
++{
++  int *s;
++};
++
++void test (int x, struct S *y)
++{
++  int i;
++  for (i = 0; i < x; i++)
++    {
++      if (y)
++        y->s[i] += 1;
++    }
++}
++
++int main (void)
++{
++  test (1, (void *) 0);
++  return 0;
++}
+Index: gcc/testsuite/gcc.c-torture/execute/20070201-1.c
+===================================================================
+--- gcc/testsuite/gcc.c-torture/execute/20070201-1.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.c-torture/execute/20070201-1.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,20 @@
++/* PR middle-end/30473 */
++
++extern int sprintf (char *, const char *, ...);
++extern void abort (void);
++
++char *
++foo (char *buf, char *p)
++{
++  sprintf (buf, "abcde", p++);
++  return p;
++}
++
++int
++main (void)
++{
++  char buf[6];
++  if (foo (buf, &buf[2]) != &buf[3])
++    abort ();
++  return 0;
++}
+Index: gcc/testsuite/gcc.c-torture/execute/20070227-1.c
+===================================================================
+--- gcc/testsuite/gcc.c-torture/execute/20070227-1.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.c-torture/execute/20070227-1.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,31 @@
++/* PR rtl-optimization/30931 */
++/* Testcase by Peter Bergner <bergner@gcc.gnu.org> */
++
++struct s
++{
++  int first;
++  int done;
++};
++
++void bug (struct s *p)
++{
++  int i;
++  for (i=0; i < 2; i++)
++    {
++      while (p[i].first && p[i].done)
++        p[i].first = 0;
++    }
++}
++
++int main (void)
++{
++  struct s array[2];
++  array[0].first = 1;
++  array[0].done = 1;
++  array[1].first = 0;
++  array[1].done = 0;
++
++  bug (array);
++
++  return 0;
++}
+Index: gcc/testsuite/gcc.dg/torture/pr30313.c
+===================================================================
+--- gcc/testsuite/gcc.dg/torture/pr30313.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.dg/torture/pr30313.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,15 @@
++/* { dg-do compile } */
++
++static inline void bar(){}
++
++struct S
++{
++  signed int i: 32;
++};
++
++int main()
++{
++  struct S x = {32};
++  sizeof(x.i+0);
++  return 0;
++}
+Index: gcc/testsuite/gcc.dg/tree-ssa/andor-1.c
+===================================================================
+--- gcc/testsuite/gcc.dg/tree-ssa/andor-1.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.dg/tree-ssa/andor-1.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,65 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -fdump-tree-original" } */
++
++unsigned int test1(unsigned int a)
++{
++  return (a & 1) | 1;
++}
++
++int test2(int b)
++{
++  return (b & 1) | 1;
++}
++
++unsigned int test3(unsigned int c)
++{
++  return (c | 1) & 1;
++}
++
++int test4(int d)
++{
++  return (d | 1) & 1;
++}
++
++unsigned int test5(unsigned int e)
++{
++  return (e | 4) & 6;
++}
++
++int test6(int f)
++{
++  return (f | 4) & 6;
++}
++
++unsigned int test7(unsigned int g)
++{
++  return (g & -2) | 1;
++}
++
++int test8(int h)
++{
++  return (h & -2) | 1;
++}
++
++unsigned int test9(unsigned int i)
++{
++  return (i & 3) | 1;
++}
++
++int test10(int j)
++{
++  return (j & 3) | 1;
++}
++
++/* { dg-final { scan-tree-dump-times "a \& 1 \\| 1" 0 "original" } } */
++/* { dg-final { scan-tree-dump-times "b \& 1 \\| 1" 0 "original" } } */
++/* { dg-final { scan-tree-dump-times "\\(c \\| 1\\) \& 1" 0 "original" } } */
++/* { dg-final { scan-tree-dump-times "\\(d \\| 1\\) \& 1" 0 "original" } } */
++/* { dg-final { scan-tree-dump-times "e \& 2 \\| 4" 1 "original" } } */
++/* { dg-final { scan-tree-dump-times "f \& 2 \\| 4" 1 "original" } } */
++/* { dg-final { scan-tree-dump-times "g \\| 1" 1 "original" } } */
++/* { dg-final { scan-tree-dump-times "h \\| 1" 1 "original" } } */
++/* { dg-final { scan-tree-dump-times "i \& 2 \\| 1" 1 "original" } } */
++/* { dg-final { scan-tree-dump-times "j \& 2 \\| 1" 1 "original" } } */
++/* { dg-final { cleanup-tree-dump "original" } } */
++
+Index: gcc/testsuite/gcc.dg/pr30189.c
+===================================================================
+--- gcc/testsuite/gcc.dg/pr30189.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.dg/pr30189.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,18 @@
++/* { dg-do compile } */
++/* { dg-options "-g -O" } */
++
++extern void foo (void);
++
++static
++void baz (int i)
++{
++  foo ();
++  typedef char A[i];
++  struct { A b; } *x = 0;
++}
++
++void
++bar (i)
++{
++  baz (i);
++}
+Index: gcc/testsuite/gcc.dg/vect/vect-106-alias.c
+===================================================================
+--- gcc/testsuite/gcc.dg/vect/vect-106-alias.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.dg/vect/vect-106-alias.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,51 @@
++/* { dg-require-effective-target vect_int } */
++
++#include <stdlib.h>
++#include <stdarg.h>
++#include "tree-vect.h"
++
++#define N 9
++
++static int a[N] = {1,2,3,4,5,6,7,8,9};
++static int b[N] = {2,3,4,5,6,7,8,9,0};
++
++int main1 () {
++  int i;
++  int *p, *q, *p1, *q1;
++  p = (unsigned int *) malloc (sizeof (unsigned int) * N);
++  q = (unsigned int *) malloc (sizeof (unsigned int) * N);
++
++  p1 = p; q1 = q;
++
++  /* Not vectorizable: because of the redundant cast (caused by ponter
++     arithmetics), alias analysis fails to distinguish between 
++     the pointers.  */
++  for (i = 0; i < N; i++)
++    {
++      *(q + i) = a[i];
++      *(p + i) = b[i];
++    }
++
++  /* check results: */
++  for (i = 0; i < N; i++)
++    {
++       if (*q != a[i] || *p != b[i])
++         abort();
++       q++; 
++       p++;
++    }
++  
++  return 0; 
++}
++
++int main (void)
++{ 
++  check_vect ();
++
++  return main1 ();
++}
++
++/* { dg-final { scan-tree-dump-times "vectorized 1 loops" 0 "vect" } } */
++/* { dg-final { scan-tree-dump-times "can't determine dependence" 1 "vect" } } */
++/* { dg-final { cleanup-tree-dump "vect" } } */
++
+
+Eigenschafts√§nderungen: gcc/testsuite/gcc.dg/vect/vect-106-alias.c
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Index: gcc/testsuite/gcc.dg/pr30473.c
+===================================================================
+--- gcc/testsuite/gcc.dg/pr30473.c	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gcc.dg/pr30473.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,13 @@
++/* PR middle-end/30473 */
++/* Make sure this doesn't ICE.  */
++/* { dg-do compile } */
++/* { dg-options "-O2" } */
++
++extern int sprintf (char *, const char *, ...);
++
++void
++foo (char *buf1, char *buf2)
++{
++  sprintf (buf1, "%s", "abcde");
++  sprintf (buf2, "%s");
++}
+Index: gcc/testsuite/ChangeLog
+===================================================================
+--- gcc/testsuite/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,104 @@
++2007-03-05  Simon Martin  <simartin@users.sourceforge.net>
++
++	PR c++/30895
++	* g++.dg/parse/template23.C: New test.
++
++2007-03-01  Tobias Schlueter  <tobias.schlueter@physik.uni-muenchen.de>
++
++	Backport from trunk
++	PR fortran/29441
++	* gfortran.dg/initialization_4.f90: New test.
++
++2007-02-27  Eric Botcazou  <ebotcazou@libertysurf.fr>
++
++	* gcc.c-torture/execute/20070227-1.c: New test.
++
++2007-02-27  Tobias Schl¸ter  <tobias.schlueter@physik.uni-muenchen.de>
++
++	PR fortran/25392
++	* gfortran.dg/f2c_8.f90: New test.
++
++2007-02-25  Roger Sayle  <roger@eyesopen.com>
++
++        PR fortran/30400
++        * gfortran.dg/forall_10.f90: New test case.
++
++2007-02-24  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	PR libgfortran/30918
++	* gfortran.dg/namelist_26.f90: New test.
++
++2007-02-23  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	PR libgfortran/30910	
++	* gfortran.dg/fmt_zero_precision.f90: New test.
++
++2007-02-21  Mark Mitchell  <mark@codesourcery.com>
++
++	* lib/wrapper.exp (${tool}_maybe_build_wrapper): Allow the caller
++	to set options for compiling testglue.
++	* lib/g++.exp (g++_init): Compile testglue with -fexceptions.
++	* lib/obj-c++.exp (obj-c++_init): Likewise.
++
++2007-02-20 Ira Rosen  <irar@il.ibm.com>
++
++	* gfortran.dg/vect/vect-2.f90: Xfail to vectorize one of the loops
++	because of aliasing.
++
++2007-02-18  Roger Sayle  <roger@eyesopen.com>
++
++	PR middle-end/24427
++	PR rtl-optimization/28173
++	* gcc.dg/tree-ssa/andor-1.c: New test case.
++
++2007-02-18 Ira Rosen  <irar@il.ibm.com>
++
++	* gcc.dg/vect/vect-106-alias.c: New test.
++
++2007-02-16  Eric Botcazou  <ebotcazou@libertysurf.fr>
++
++	* gcc.c-torture/execute/20070216-1.c: New test.
++
++2007-02-15  Steven G. Kargl  <kargl@gcc.gnu.org>
++
++	PR fortran/30799
++	* gfortran.dg/logical_2.f90: New test.
++
++2007-02-15  Alexandre Oliva  <aoliva@redhat.com>
++
++	* g++.dg/tree-ssa/sra-1.C: New.
++
++2007-02-10  Tobias Schlueter  <tobi@gcc.gnu.org>
++
++	PR fortran/30478
++	* gfortran.dg/enum_4.f90: Update expected error message.
++
++2007-02-15  Alexandre Oliva  <aoliva@redhat.com>
++
++	PR debug/30189
++	* gcc.dg/pr30189.c: New test.
++
++2007-02-14  Kaveh R. Ghazi  <ghazi@caip.rutgers.edu>
++
++	* g++.dg/tree-ssa/nothrow-1.C: Skip test if -fpic/-fPIC is used.
++
++2007-02-14  Jakub Jelinek  <jakub@redhat.com>
++
++	PR c++/30536
++	* g++.dg/tls/diag-5.C: New test.
++
++	PR middle-end/30473
++	* gcc.dg/pr30473.c: New test.
++	* gcc.c-torture/execute/20070201-1.c: New test.
++
++2007-02-14  Richard Guenther  <rguenther@suse.de>
++
++	Backport from mainline:
++	2007-01-30  Richard Guenther  <rguenther@suse.de>
++
++	PR middle-end/30313
++	* gcc.dg/torture/pr30313.c: New testcase.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+Index: gcc/testsuite/g++.dg/tree-ssa/nothrow-1.C
+===================================================================
+--- gcc/testsuite/g++.dg/tree-ssa/nothrow-1.C	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/g++.dg/tree-ssa/nothrow-1.C	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,5 +1,6 @@
+ /* { dg-do compile } */
+ /* { dg-options "-O1 -fdump-tree-cfg" } */
++/* { dg-skip-if "" { "*-*-*" } { "-fpic" "-fPIC" } { "" } } */
+ double a;
+ void t()
+ {
+Index: gcc/testsuite/g++.dg/tree-ssa/sra-1.C
+===================================================================
+--- gcc/testsuite/g++.dg/tree-ssa/sra-1.C	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/g++.dg/tree-ssa/sra-1.C	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,29 @@
++/* https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=223576 */
++
++/* SRA failed to canonicalize bit-field types, introducing type
++   mismatches.  */
++
++/* { dg-do compile } */
++/* { dg-options "-O2" } */
++
++struct A
++{
++  int a:16;
++  /* These dummy bit-fields are here to prevent GCC 4.2+ from merging
++     the bit-field compares into a single word compare, which disables
++     SRA.  */
++  int a2:16;
++  int a3:16;
++  int a4:16;
++  int b:8;
++  bool operator==(A const x) const
++  {
++    return (this->a == x.a && this->b == x.b);
++  }
++};
++
++bool
++foo (A const x, A const y)
++{
++  return x == y;
++}
+Index: gcc/testsuite/g++.dg/tls/diag-5.C
+===================================================================
+--- gcc/testsuite/g++.dg/tls/diag-5.C	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/g++.dg/tls/diag-5.C	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,5 @@
++// PR c++/30536
++// Invalid __thread specifiers.
++// { dg-require-effective-target tls }
++
++struct A { __thread register int i; }; // { dg-error "multiple storage classes|storage class specified" }
+Index: gcc/testsuite/g++.dg/parse/template23.C
+===================================================================
+--- gcc/testsuite/g++.dg/parse/template23.C	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/g++.dg/parse/template23.C	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,10 @@
++/* PR c++/30895 This used to ICE.  */
++/* { dg-do "compile" } */
++
++template<int> struct A {};
++
++template<typename T> struct B
++{
++  A<T(0i)> a1; /* { dg-error "imaginary constants are a GCC extension" } */
++  A<T(0i)> a2; /* { dg-error "imaginary constants are a GCC extension" } */
++};
+Index: gcc/testsuite/lib/g++.exp
+===================================================================
+--- gcc/testsuite/lib/g++.exp	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/lib/g++.exp	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -221,7 +221,7 @@
+ 	unset gluefile
+     }
+ 
+-    g++_maybe_build_wrapper "${tmpdir}/g++-testglue.o"
++    g++_maybe_build_wrapper "${tmpdir}/g++-testglue.o" "-fexceptions"
+ 
+     if {![info exists CXXFLAGS]} {
+ 	set CXXFLAGS ""
+Index: gcc/testsuite/lib/obj-c++.exp
+===================================================================
+--- gcc/testsuite/lib/obj-c++.exp	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/lib/obj-c++.exp	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -239,7 +239,7 @@
+ 	unset gluefile
+     }
+ 
+-    obj-c++_maybe_build_wrapper "${tmpdir}/obj-c++-testglue.o"
++    obj-c++_maybe_build_wrapper "${tmpdir}/obj-c++-testglue.o" "-fexceptions"
+ 
+     set ALWAYS_OBJCXXFLAGS ""
+ 
+Index: gcc/testsuite/lib/wrapper.exp
+===================================================================
+--- gcc/testsuite/lib/wrapper.exp	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/lib/wrapper.exp	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -18,18 +18,20 @@
+ 
+ # ${tool}_maybe_build_wrapper -- Build wrapper object if the target needs it.
+ 
+-proc ${tool}_maybe_build_wrapper { filename } {
++proc ${tool}_maybe_build_wrapper { filename args } {
+     global gluefile wrap_flags
+ 
+     if { [target_info needs_status_wrapper] != "" \
+  	 && [target_info needs_status_wrapper] != "0" \
+ 	 && ![info exists gluefile] } {
+ 	set saved_wrap_compile_flags [target_info wrap_compile_flags]
++	set flags [join $args " "]
+ 	# The wrapper code may contain code that gcc objects on.  This
+ 	# became true for dejagnu-1.4.4.  The set of warnings and code
+ 	# that gcc objects on may change, so just make sure -w is always
+ 	# passed to turn off all warnings.
+-	set_currtarget_info wrap_compile_flags "$saved_wrap_compile_flags -w"
++	set_currtarget_info wrap_compile_flags \
++	    "$saved_wrap_compile_flags -w $flags"
+ 	set result [build_wrapper $filename]
+ 	set_currtarget_info wrap_compile_flags "$saved_wrap_compile_flags"
+ 	if { $result != "" } {
+Index: gcc/testsuite/gfortran.dg/logical_2.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/logical_2.f90	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gfortran.dg/logical_2.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,26 @@
++! { dg-do compile }
++! PR fortran/30799
++! Inconsistent handling of bad (invalid) LOGICAL kinds
++! Reporter: Harald Anlauf <anlauf@gmx.de>
++! Testcase altered by Steven G. Kargl
++program gfcbug57
++  implicit none
++  !
++  ! These are logical kinds known by gfortran and many other compilers:
++  !
++  print *, kind (.true._1) ! This prints "1"
++  print *, kind (.true._2) ! This prints "2"
++  print *, kind (.true._4) ! This prints "4"
++  print *, kind (.true._8) ! This prints "8"
++  !
++  ! These are very strange (read: bad (invalid?)) logical kinds,
++  ! handled inconsistently by gfortran (there's no logical(kind=0) etc.)
++  !
++  print *, kind (.true._0)   ! { dg-error "kind for logical constant" }
++  print *, kind (.true._3)   ! { dg-error "kind for logical constant" }
++  print *, kind (.true._123) ! { dg-error "kind for logical constant" }
++  !
++  ! Here gfortran bails out with a runtime error:
++  !
++  print *, .true._3   ! { dg-error "kind for logical constant" }
++end program gfcbug57
+Index: gcc/testsuite/gfortran.dg/enum_4.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/enum_4.f90	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/gfortran.dg/enum_4.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -5,12 +5,12 @@
+   implicit none
+   enum, bind (c)
+     enumerator :: red, black = 2     
+-    enumerator :: blue = 1, red  ! { dg-error "already" }
++    enumerator :: blue = 1, red  ! { dg-error "already has basic type" }
+   end enum
+ 
+   enum, bind (c)
+-    enumerator :: r, b(10) = 2  ! { dg-error "cannot be array" }
+-    enumerator , save :: g = 1  ! { dg-error "cannot have attributes" }  
++    enumerator :: r, b(10) = 2  ! { dg-error "Syntax error" }
++    enumerator , save :: g = 1  ! { dg-error "Syntax error" }  
+   end  ! { dg-error " END ENUM" } 
+ 
+ end program main  ! { dg-excess-errors "" }
+Index: gcc/testsuite/gfortran.dg/initialization_4.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/initialization_4.f90	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gfortran.dg/initialization_4.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,6 @@
++! PR 29441 : No error was given for disallowed function in
++! initialization expression, even if -std=f95 was used
++! { dg-do compile }
++! { dg-options "-std=f95" }
++real, parameter :: pi = 4.0*Atan(1.0) ! { dg-error "Evaluation of nonstandard initialization expression" }
++end
+Index: gcc/testsuite/gfortran.dg/namelist_26.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/namelist_26.f90	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gfortran.dg/namelist_26.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,48 @@
++! { dg-do run }
++! PR30918 Failure to skip commented out NAMELIST
++! Before the patch, this read the commented out namelist and iuse would
++! equal 2 when done.  Test case from PR.
++program gfcbug58
++  implicit none
++  integer            :: iuse = 0, ios
++  integer, parameter :: nmlunit = 10    ! Namelist unit
++  !------------------
++  ! Namelist 'REPORT'
++  !------------------
++  character(len=12) :: type, use
++  integer           :: max_proc
++  namelist /REPORT/ type, use, max_proc
++  !------------------
++  ! Set up the test file
++  !------------------
++  open(unit=nmlunit, status="scratch")
++  write(nmlunit, '(a)') "!================"
++  write(nmlunit, '(a)') "! Namelist REPORT"
++  write(nmlunit, '(a)') "!================"
++  write(nmlunit, '(a)') "!      &REPORT use      = 'ignore'   / ! Comment"
++  write(nmlunit, '(a)') "!"
++  write(nmlunit, '(a)') " &REPORT type     = 'SYNOP'"
++  write(nmlunit, '(a)') "         use      = 'active'"
++  write(nmlunit, '(a)') "         max_proc = 20"
++  write(nmlunit, '(a)') " /"
++  rewind(nmlunit)
++  !-------------------------------------
++  ! Loop to read namelist multiple times
++  !-------------------------------------
++  do
++     !----------------------------------------
++     ! Preset namelist variables with defaults
++     !----------------------------------------
++     type      = ''
++     use       = ''
++     max_proc  = -1
++     !--------------
++     ! Read namelist
++     !--------------
++     read (nmlunit, nml=REPORT, iostat=ios)
++     if (ios /= 0) exit
++     iuse = iuse + 1
++  end do
++  if (iuse /= 1) call abort()
++
++end program gfcbug58
+Index: gcc/testsuite/gfortran.dg/fmt_zero_precision.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/fmt_zero_precision.f90	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gfortran.dg/fmt_zero_precision.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,85 @@
++! { dg-do run }
++! PR28354 Incorrect rounding of .99999 with f3.0 format specifier
++! PR30910 ES format not quite right...
++! Test case derived from PR. Submitted by Jerry DeLisle <jvdelisle@gcc.gnu.org>
++  write(*,50) -0.99999
++  write(*,50) 0.99999
++  write(*,50) -9.0
++  write(*,50) -0.99
++  write(*,50) -0.999
++  write(*,50) -0.999
++  write(*,50) -0.59
++  write(*,50) -0.49
++  write(*,100) 37.99999
++  write(*,100) 10345.0
++  write(*,100) 333.678
++  write(*,100) 333.499
++  50   format(f3.0,"<")
++ 100   format(f8.0,"<")
++  write(6,'(es6.0)') 1.0e-1
++  write(*,150) -0.99999
++  write(*,150) 0.99999
++  write(*,150) -9.0
++  write(*,150) -0.99
++  write(*,150) -0.999
++  write(*,150) -0.999
++  write(*,150) -0.59
++  write(*,150) -0.49
++  write(*,200) 37.99999
++  write(*,200) 10345.0
++  write(*,200) 333.678
++  write(*,200) 333.499
++ 150   format(es7.0,"<")
++ 200   format(es8.0,"<")
++  write(*,250) -0.99999
++  write(*,250) 0.99999
++  write(*,250) -9.0
++  write(*,250) -0.99
++  write(*,250) -0.999
++  write(*,250) -0.999
++  write(*,250) -0.59
++  write(*,250) -0.49
++  write(*,300) 37.99999
++  write(*,300) 10345.0
++  write(*,300) 333.678
++  write(*,300) 333.499
++ 250   format(1pe7.0,"<")
++ 300   format(1pe6.0,"<")
++  end
++! {dg-output "-1.<"
++! {dg-output " 1.<"
++! {dg-output "-9.<"
++! {dg-output "-1.<"
++! {dg-output "-1.<"
++! {dg-output "-1.<"
++! {dg-output "-1.<"
++! {dg-output " 0.<"
++! {dg-output "     38.<"
++! {dg-output "  10345.<"
++! {dg-output "    334.<"
++! {dg-output "    333.<"
++! {dg-output "1.E-01"
++! {dg-output "-1.E+00<"
++! {dg-output " 1.E+00<"
++! {dg-output "-9.E+00<"
++! {dg-output "-1.E+00<"
++! {dg-output "-1.E+00<"
++! {dg-output "-1.E+00<"
++! {dg-output "-6.E-01<"
++! {dg-output "-5.E-01<"
++! {dg-output "  4.E+01<"
++! {dg-output "  1.E+04<"
++! {dg-output "  3.E+02<"
++! {dg-output "  3.E+02<"
++! {dg-output "-1.E+00<"
++! {dg-output " 1.E+00<"
++! {dg-output "-9.E+00<"
++! {dg-output "-1.E+00<"
++! {dg-output "-1.E+00<"
++! {dg-output "-1.E+00<"
++! {dg-output "-6.E-01<"
++! {dg-output "-5.E-01<"
++! {dg-output "4.E+01<"
++! {dg-output "1.E+04<"
++! {dg-output "3.E+02<"
++! {dg-output "3.E+02<"
+Index: gcc/testsuite/gfortran.dg/vect/vect-2.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/vect/vect-2.f90	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/testsuite/gfortran.dg/vect/vect-2.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -14,9 +14,7 @@
+ ! support unaligned loads) or using peeling to align the store (on targets that 
+ ! support unaligned loads).
+ 
+-! { dg-final { scan-tree-dump-times "vectorized 3 loops" 1 "vect" } }
+-! { dg-final { scan-tree-dump-times "Alignment of access forced using peeling" 3 "vect" { xfail vect_no_align } } }
+-! { dg-final { scan-tree-dump-times "Alignment of access forced using peeling" 2 "vect" { target vect_no_align } } }
+-! { dg-final { scan-tree-dump-times "Vectorizing an unaligned access" 2 "vect" { xfail vect_no_align } } }
+-! { dg-final { scan-tree-dump-times "Alignment of access forced using versioning." 3 "vect" {target vect_no_align } } }
++! { dg-final { scan-tree-dump-times "vectorized 3 loops" 1 "vect" { xfail *-*-* } } }
++! { dg-final { scan-tree-dump-times "vectorized 2 loops" 1 "vect" } }
++! { dg-final { scan-tree-dump-times "Alignment of access forced using peeling" 2 "vect"  } }
+ ! { dg-final { cleanup-tree-dump "vect" } }
+Index: gcc/testsuite/gfortran.dg/forall_10.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/forall_10.f90	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gfortran.dg/forall_10.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,25 @@
++! { dg-do run }
++! { dg-options "-O" }
++! Tests the fix for PR30400, in which the use of ANY in the
++! FORALL mask was rejected.
++!
++! Contributed by Dominique d'Humieres <dominiq@lps.ens.fr>
++!
++program pr30400_1
++  real, dimension (5, 5, 5, 5) :: a
++
++  a (:, :, :,  :)  = 4
++  a (:, 2, :, 4) = 10
++  a (:, 2, :, 1) = 0
++
++  forall (i = 1:5, j = 1:5, k = 1:5, any (a (i, j, k,  :)  .gt. 6))
++    forall (l = 1:5, any (a (:, :, :, l) .lt. 2))
++      a (i, j, k, l) = i - j + k - l
++    end forall
++  end forall
++  if (sum (a) .ne. 2625.0) call abort ()
++
++ ! Check that the fix has not broken the treatment of the '=='
++  forall (i = 1:5, i == 3) a(i, i, i, i) = -5
++  if (sum (a) .ne. 2616.0) call abort ()
++end
+Index: gcc/testsuite/gfortran.dg/f2c_8.f90
+===================================================================
+--- gcc/testsuite/gfortran.dg/f2c_8.f90	(.../tags/gcc_4_1_2_release)	(Revision 0)
++++ gcc/testsuite/gfortran.dg/f2c_8.f90	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -0,0 +1,16 @@
++! { dg-do compile }
++! { dg-options "-ff2c" }
++! PR 25392
++! Verify that the type of the result variable matches the declared
++! type of the function.  The actual type of the function may be
++! different for f2c calling conventions.
++real function goo () result (foo)
++  real x
++  foo = sign(foo, x)
++end
++
++real function foo ()
++  real x
++  foo = sign(foo, x)
++end
++
+Index: gcc/cp/decl.c
+===================================================================
+--- gcc/cp/decl.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/cp/decl.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -7288,20 +7288,21 @@
+ 
+   /* Warn about storage classes that are invalid for certain
+      kinds of declarations (parameters, typenames, etc.).  */
++  if (thread_p
++      && ((storage_class
++	   && storage_class != sc_extern
++	   && storage_class != sc_static)
++	  || declspecs->specs[(int)ds_typedef]))
++    {
++      if (!declspecs->multiple_storage_classes_p)
++	error ("multiple storage classes in declaration of %qs", name);
++      thread_p = false;
++    }
+   if (declspecs->multiple_storage_classes_p)
+     {
+       error ("multiple storage classes in declaration of %qs", name);
+       storage_class = sc_none;
+     }
+-  else if (thread_p
+-	   && ((storage_class
+-		&& storage_class != sc_extern
+-		&& storage_class != sc_static)
+-	       || declspecs->specs[(int)ds_typedef]))
+-    {
+-      error ("multiple storage classes in declaration of %qs", name);
+-      thread_p = false;
+-    }
+   else if (decl_context != NORMAL
+ 	   && ((storage_class != sc_none
+ 		&& storage_class != sc_mutable)
+Index: gcc/cp/call.c
+===================================================================
+--- gcc/cp/call.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/cp/call.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -5481,6 +5481,20 @@
+ 		  && TREE_SIDE_EFFECTS (instance_ptr))
+ 		call = build2 (COMPOUND_EXPR, TREE_TYPE (call),
+ 			       instance_ptr, call);
++	      else if (call != error_mark_node
++		       && DECL_DESTRUCTOR_P (cand->fn)
++		       && !VOID_TYPE_P (TREE_TYPE (call)))
++		/* An explicit call of the form "x->~X()" has type
++		   "void".  However, on platforms where destructors
++		   return "this" (i.e., those where
++		   targetm.cxx.cdtor_returns_this is true), such calls
++		   will appear to have a return value of pointer type
++		   to the low-level call machinery.  We do not want to
++		   change the low-level machinery, since we want to be
++		   able to optimize "delete f()" on such platforms as
++		   "operator delete(~X(f()))" (rather than generating
++		   "t = f(), ~X(t), operator delete (t)").  */
++		call = build_nop (void_type_node, call);
+ 	    }
+ 	}
+     }
+Index: gcc/cp/tree.c
+===================================================================
+--- gcc/cp/tree.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/cp/tree.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1442,6 +1442,10 @@
+ 	&& !memcmp (TREE_STRING_POINTER (t1), TREE_STRING_POINTER (t2),
+ 		    TREE_STRING_LENGTH (t1));
+ 
++    case COMPLEX_CST:
++      return cp_tree_equal (TREE_REALPART (t1), TREE_REALPART (t2))
++	&& cp_tree_equal (TREE_IMAGPART (t1), TREE_IMAGPART (t2));
++
+     case CONSTRUCTOR:
+       /* We need to do this when determining whether or not two
+ 	 non-type pointer to member function template arguments
+Index: gcc/cp/ChangeLog
+===================================================================
+--- gcc/cp/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/cp/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,33 @@
++2007-03-05  Simon Martin  <simartin@users.sourceforge.net>
++
++	PR c++/30895
++	* tree.c (cp_tree_equal): Properly handle COMPLEX_CST trees.
++
++2007-02-19  Mark Mitchell  <mark@codesourcery.com>
++
++	* call.c (build_new_method_call): Ensure that explicit calls of
++	destructors have type "void".
++
++2007-02-19  Mark Mitchell  <mark@codesourcery.com>
++
++	* decl2.c (import_export_decl): Reverse sense of 
++	DECL_VISIBILITY_SPECIFIED test for target-specific visibility
++	rules.
++
++	Backport of:
++	2006-07-20  Jason Merrill  <jason@redhat.com>
++	* decl2.c (determine_visibility_from_class): Reverse sense of 
++	DECL_VISIBILITY_SPECIFIED test for target-specific visibility
++	rules.
++
++2007-02-14  Jakub Jelinek  <jakub@redhat.com>
++
++	PR c++/30536
++	* decl.c (grokdeclarator): If __thread is used together with
++	a storage class other than extern and static, clear thread_p
++	after issuing diagnostics and fall through to checking the
++	storage class.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+Index: gcc/cp/decl2.c
+===================================================================
+--- gcc/cp/decl2.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/cp/decl2.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1905,8 +1905,8 @@
+       comdat_linkage (decl);
+     }
+ 
+-  /* Give the target a chance to override the visibility associated
+-     with DECL.  */
++  /* Give the target a chance to override the visibility of class
++     data, like virtual tables.  */
+   if (TREE_CODE (decl) == VAR_DECL
+       && (DECL_TINFO_P (decl)
+ 	  || (DECL_VTABLE_OR_VTT_P (decl)
+@@ -1914,9 +1914,16 @@
+ 		 they cannot be referred to from other object files;
+ 		 their name is not standardized by the ABI.  */
+ 	      && !DECL_CONSTRUCTION_VTABLE_P (decl)))
+-      && TREE_PUBLIC (decl)
++      /* Visibility only applies to objects with external linkage.  */
++      && TREE_PUBLIC (decl) 
++      /* Visibility is specified by the definition of the object, not
++	 its declaration.  */
+       && !DECL_REALLY_EXTERN (decl)
+-      && DECL_VISIBILITY_SPECIFIED (decl)
++      /* Respect any explicit specification of visibility for the
++	 class data itself.  */
++      && !DECL_VISIBILITY_SPECIFIED (decl)
++      /* If the visibility of the class has been explicitly specified,
++	 that visibility applies to class data as well.  */
+       && (!class_type || !CLASSTYPE_VISIBILITY_SPECIFIED (class_type)))
+     targetm.cxx.determine_class_data_visibility (decl);
+ 
+Index: gcc/haifa-sched.c
+===================================================================
+--- gcc/haifa-sched.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/haifa-sched.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -142,6 +142,7 @@
+ #include "recog.h"
+ #include "sched-int.h"
+ #include "target.h"
++#include "params.h"
+ 
+ #ifdef INSN_SCHEDULING
+ 
+@@ -1379,9 +1380,22 @@
+ 	fprintf (sched_dump, ";;\t\tQ-->Ready: insn %s: ",
+ 		 (*current_sched_info->print_insn) (insn, 0));
+ 
+-      ready_add (ready, insn);
+-      if (sched_verbose >= 2)
+-	fprintf (sched_dump, "moving to ready without stalls\n");
++      /* If the ready list is full, delay the insn for 1 cycle.
++	 See the comment in schedule_block for the rationale.  */
++      if (!reload_completed
++	  && ready->n_ready > MAX_SCHED_READY_INSNS
++	  && !SCHED_GROUP_P (insn))
++	{
++	  if (sched_verbose >= 2)
++	    fprintf (sched_dump, "requeued because ready full\n");
++	  queue_insn (insn, 1);
++	}
++      else
++	{
++	  ready_add (ready, insn);
++	  if (sched_verbose >= 2)
++	    fprintf (sched_dump, "moving to ready without stalls\n");
++        }
+     }
+   insn_queue[q_ptr] = 0;
+ 
+@@ -1903,6 +1917,31 @@
+   memset (insn_queue, 0, (max_insn_queue_index + 1) * sizeof (rtx));
+   last_clock_var = -1;
+ 
++  /* The algorithm is O(n^2) in the number of ready insns at any given
++     time in the worst case.  Before reload we are more likely to have
++     big lists so truncate them to a reasonable size.  */
++  if (!reload_completed && ready.n_ready > MAX_SCHED_READY_INSNS)
++    {
++      ready_sort (&ready);
++
++      /* Find first free-standing insn past MAX_SCHED_READY_INSNS.  */
++      for (i = MAX_SCHED_READY_INSNS; i < ready.n_ready; i++)
++	if (!SCHED_GROUP_P (ready_element (&ready, i)))
++	  break;
++
++      if (sched_verbose >= 2)
++	{
++	  fprintf (sched_dump,
++		   ";;\t\tReady list on entry: %d insns\n", ready.n_ready);
++	  fprintf (sched_dump,
++		   ";;\t\t before reload => truncated to %d insns\n", i);
++	}
++
++      /* Delay all insns past it for 1 cycle.  */
++      while (i < ready.n_ready)
++	queue_insn (ready_remove (&ready, i), 1);
++    }
++
+   /* Start just before the beginning of time.  */
+   clock_var = -1;
+   advance = 0;
+Index: gcc/tree-ssa-alias.c
+===================================================================
+--- gcc/tree-ssa-alias.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/tree-ssa-alias.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -46,6 +46,7 @@
+ #include "ipa-type-escape.h"
+ #include "vec.h"
+ #include "bitmap.h"
++#include "pointer-set.h"
+ 
+ /* Obstack used to hold grouping bitmaps and other temporary bitmaps used by
+    aliasing  */
+@@ -2231,6 +2232,38 @@
+ }
+ 
+ 
++/* Given two tags return TRUE if their may-alias sets intersect.  */
++
++bool 
++may_aliases_intersect (tree tag1, tree tag2)
++{ 
++  struct pointer_set_t *set1 = pointer_set_create ();
++  unsigned i;
++  varray_type may_aliases1 = var_ann (tag1)->may_aliases; 
++  varray_type may_aliases2 = var_ann (tag2)->may_aliases;
++
++  if (may_aliases1 == NULL || may_aliases2 == NULL)
++    return false;
++ 
++  /* Insert all the symbols from the first may-alias set into the
++     pointer-set.  */
++  for (i = 0; i < VARRAY_ACTIVE_SIZE (may_aliases1); i++)
++    pointer_set_insert (set1, VARRAY_TREE (may_aliases1, i));
++
++  /* Go through the second may-alias set and check if it contains symbols that
++     are common with the first set.  */
++  for (i = 0; i < VARRAY_ACTIVE_SIZE (may_aliases2); i++)
++    if (pointer_set_contains (set1, VARRAY_TREE (may_aliases2, i)))
++      {
++       pointer_set_destroy (set1); 
++       return true;
++      }
++  
++  pointer_set_destroy (set1);
++  return false;
++}
++
++
+ /* Add VAR to the list of may-aliases of PTR's type tag.  If PTR
+    doesn't already have a type tag, create one.  */
+ 
+Index: gcc/dwarf2out.c
+===================================================================
+--- gcc/dwarf2out.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/dwarf2out.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -8407,7 +8407,10 @@
+ 	      mod_type_die = lookup_type_die (qualified_type);
+ 	    }
+ 	  else if (is_const_type < TYPE_READONLY (dtype)
+-		   || is_volatile_type < TYPE_VOLATILE (dtype))
++		   || is_volatile_type < TYPE_VOLATILE (dtype)
++		   || (is_const_type <= TYPE_READONLY (dtype)
++		       && is_volatile_type <= TYPE_VOLATILE (dtype)
++		       && DECL_ORIGINAL_TYPE (type_name) != type))
+ 	    /* cv-unqualified version of named type.  Just use the unnamed
+ 	       type to which it refers.  */
+ 	    mod_type_die
+Index: gcc/ada/ChangeLog
+===================================================================
+--- gcc/ada/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/ada/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,18 @@
++2007-02-20  Eric Botcazou  <ebotcazou@adacore.com>
++
++	PR ada/30684
++	Backport from 4.2 branch:
++	2006-11-17  Eric Botcazou  <ebotcazou@adacore.com>
++
++	* ada-tree.h (DECL_READONLY_ONCE_ELAB): New macro.
++	* decl.c (elaborate_expression_1): Test the DECL_READONLY_ONCE_ELAB
++	flag in addition to TREE_READONLY to assert the constantness of
++	variables for elaboration purposes.
++	* trans.c (add_decl_expr): Do not dynamically elaborate padded objects
++	if the initializer takes into account the padding.
++	Set DECL_READONLY_ONCE_ELAB flag on variables originally TREE_READONLY
++	but whose elaboration cannot be performed statically.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+@@ -24,8 +39,8 @@
+ 
+ 2006-06-06  Laurent GUERBY  <laurent@guerby.net>
+ 
+-        PR ada/27769
+-        mlib-utl.adb: Use Program_Name.
++	PR ada/27769
++	* mlib-utl.adb: Use Program_Name.
+ 
+ 2006-05-24  Release Manager
+ 
+@@ -48,20 +63,19 @@
+ 
+ 	Backport:
+ 	2005-12-05  Paolo Bonzini  <bonzini@gnu.org>
+-        * Makefile.in (gnatlib): Fix regex, using \. instead of . when a
++	* Makefile.in (gnatlib): Fix regex, using \. instead of . when a
+ 	period is meant.
+-	
++
+ 2006-02-17  Eric Botcazou  <ebotcazou@adacore.com>
+ 
+ 	Backport from mainline:
+ 	2006-02-13  Geert Bosch  <bosch@adacore.com>
+-	            Gary Dismukes  <dismukes@adacore.com>
++		    Gary Dismukes  <dismukes@adacore.com>
+ 
+ 	* a-tifiio.adb (Put_Digits): Test Last against To'First - 1 instead of
+ 	0, since the lower bound of the actual string may be greater than one.
+ 
+ 	PR ada/20753
+-
+ 	(Put): Fix condition to raise Layout_Error when invalid
+ 	layout is requested.
+ 
+@@ -123,8 +137,8 @@
+ 
+ 2005-11-18  Laurent GUERBY  <laurent@guerby.net>
+ 
+-        PR ada/24857
+-        * Makefile.in: Use s-auxdec-empty for RTEMS.
++	PR ada/24857
++	* Makefile.in: Use s-auxdec-empty for RTEMS.
+ 
+ 2005-11-17  Richard Kenner  <kenner@vlsi1.ultra.nyu.edu>
+ 
+@@ -138,15 +152,15 @@
+ 
+ 	PR ada/24857
+ 	* s-auxdec-empty.ads, s-auxdec-empty.adb: New files.
+-	
++
+ 2005-11-16  Richard Guenther  <rguenther@suse.de>
+ 
+ 	* Makefile.in: Add EH_MECHANISM=-gcc to s390(x) linux.
+ 
+ 2005-11-16  Joel Sherrill <joel.sherrill@oarcorp.com>
+ 
+-        PR ada/24855
+-        * raise-gcc.c: Add missing stdarg.h include.
++	PR ada/24855
++	* raise-gcc.c: Add missing stdarg.h include.
+  
+ 2005-11-16  Richard Guenther  <rguenther@suse.de>
+ 
+@@ -214,7 +228,6 @@
+ 	    Ed Schonberg  <schonberg@adacore.com>
+ 
+ 	PR ada/18434
+-
+ 	* types.ads: Include All_Checks in Suppress_Array
+ 
+ 	* checks.adb (Check_Needed): Remove kludge for a/=b rewritten as
+@@ -337,7 +350,7 @@
+ 	(Save_Occurrence_And_Private): Move GCC EH related code to
+ 	a-exexpr-gcc.adb
+ 	(Raise_Current_Excep): Add new variable Id with pragma
+-        volatile, to ensure that the variable lives on stack.
++	volatile, to ensure that the variable lives on stack.
+ 
+ 	* a-exexpr-gcc.adb, raise-gcc.c: New file.
+ 
+@@ -1142,7 +1155,6 @@
+ 	    Javier Miranda  <miranda@adacore.com>
+ 
+ 	PR ada/15604
+-
+ 	* sem_type.adb (Covers): In an inlined body, a composite type matches
+ 	a private type whose full view is a composite type.
+ 	(Interface_Present_In_Ancestor): Protect the frontend against
+@@ -2449,9 +2461,9 @@
+ 	subprogram Complete_Subprograms_Derivation already does the
+ 	job associated with the second call.
+ 
+-        * exp_strm.adb (Build_Elementary_Input_Call): Add an explicit
+-        conversion to the full view when generating an operation for a
+-        discriminant whose type may currently be private.
++	* exp_strm.adb (Build_Elementary_Input_Call): Add an explicit
++	conversion to the full view when generating an operation for a
++	discriminant whose type may currently be private.
+ 
+ 2005-09-01  Ed Schonberg  <schonberg@adacore.com>
+ 	    Javier Miranda  <miranda@adacore.com>
+@@ -2836,7 +2848,6 @@
+ 2005-07-07  Olivier Hainque  <hainque@adacore.com>
+ 
+ 	PR ada/22301
+-
+ 	* raise.c: Only include unwind.h if IN_RTS, and provide dummy type
+ 	definitions for the Unwind wrappers in the compiler case.
+ 
+@@ -2948,10 +2959,10 @@
+ 	N_Object_Declaration, only perform the checks if the Object_Definition
+ 	is not an Access_Definition.
+ 
+-        * sem_ch3.adb (Access_Subprogram_Declaration): Add test for the case
+-        where the parent of an the access definition is an N_Object_Declaration
+-        when determining the Associated_Node_For_Itype and scope of an
+-        anonymous access-to-subprogram type.
++	* sem_ch3.adb (Access_Subprogram_Declaration): Add test for the case
++	where the parent of an the access definition is an N_Object_Declaration
++	when determining the Associated_Node_For_Itype and scope of an
++	anonymous access-to-subprogram type.
+ 
+ 	* exp_ch6.adb (Expand_N_Subprogram_Declaration): Set the
+ 	Corresponding_Spec on the body created for a null procedure. Add ???
+@@ -3134,7 +3145,6 @@
+ 2005-07-04  Robert Dewar  <dewar@adacore.com>
+ 
+ 	PR ada/22039
+-
+ 	* s-sopco3.ads, s-sopco4.ads, s-sopco5.ads: Minor documentation fix
+ 
+ 2005-07-04  Matthew Gingell  <gingell@adacore.com>
+@@ -3186,19 +3196,19 @@
+ 
+ 2005-07-04  Sergey Rybin  <rybin@adacore.com>
+ 
+-        * gnat_ugn.texi: Add description of --eol gnatpp option
++	* gnat_ugn.texi: Add description of --eol gnatpp option
+ 
+ 2005-07-04  Eric Botcazou  <ebotcazou@adacore.com>
+ 	    Thomas Quinot  <quinot@adacore.com>
+ 
+-        * gnat_rm.texi: Add a note that pragma Unreferenced is not appropriate
++	* gnat_rm.texi: Add a note that pragma Unreferenced is not appropriate
+ 	if the user wants all calls of a subprogram to be flagged,
+ 	independently of whether they are made from within the same unit or
+ 	another unit.
+-        Mention restriction for pragma Linker_Alias on some platforms.
+-        Document pragma Linker_Constructor and Linker_Destructor.
+-        Rewrite documentation of Weak_External, Linker_Section and
+-        Linker_Alias pragmas.
++	Mention restriction for pragma Linker_Alias on some platforms.
++	Document pragma Linker_Constructor and Linker_Destructor.
++	Rewrite documentation of Weak_External, Linker_Section and
++	Linker_Alias pragmas.
+ 
+ 2005-07-04  Arnaud Charlet  <charlet@adacore.com>
+ 
+@@ -4165,8 +4175,8 @@
+ 	s-valwch.ads, s-widwch.adb, s-widwch.ads, s-wwdcha.adb, s-wwdwch.adb:
+ 	Rewrite to correspond to new wide character names in AI-395
+ 
+-        * par-ch12.adb (P_Formal_Subprogram_Declaration): Recognize null
+-        default procedures.
++	* par-ch12.adb (P_Formal_Subprogram_Declaration): Recognize null
++	default procedures.
+ 
+ 2005-06-14  Ed Schonberg  <schonberg@adacore.com>
+ 	    Robert Dewar  <dewar@adacore.com>
+@@ -4255,7 +4265,6 @@
+ 2005-06-14  Thomas Quinot  <quinot@adacore.com>
+ 
+ 	PR ada/6717
+-
+ 	* g-socket.ads, g-socket.adb (Inet_Addr): Special case the all-ones
+ 	broadcast address.
+ 	(Create_Selector): Bind listening socket used to create the signalling
+@@ -4327,15 +4336,15 @@
+ 	For objects and parameters of a generic private type, retain the '*'
+ 	indicator to distinguish such an entity from its type.
+ 
+-        * ali.ads (Xref_Entity_Record): New fields Iref_File_Num and Iref_Line,
+-        to store information about instantiated entities.
++	* ali.ads (Xref_Entity_Record): New fields Iref_File_Num and Iref_Line,
++	to store information about instantiated entities.
+ 
+-        * ali.adb (Scan_ALI): Add support for parsing the reference to the
+-        generic parent
++	* ali.adb (Scan_ALI): Add support for parsing the reference to the
++	generic parent
+ 
+-        * xref_lib.adb (Skip_To_Matching_Closing_Bracket): New subprogram
+-        (Parse_Identifier_Info, Parse_Token): Add support for the generic parent
+-        information.
++	* xref_lib.adb (Skip_To_Matching_Closing_Bracket): New subprogram
++	(Parse_Identifier_Info, Parse_Token): Add support for the generic parent
++	information.
+ 
+ 2005-06-10  Doug Rupp  <rupp@adacore.com>
+ 	    Arnaud Charlet  <charlet@adacore.com>
+@@ -4398,7 +4407,6 @@
+ 2005-06-14  Robert Dewar  <dewar@adacore.com>
+ 
+ 	PR ada/15613
+-
+ 	* par-ch2.adb (Scan_Pragma_Argument): New procedure
+ 	(P_Pragma): Implement RM 2.8(4) check for no pos args after named args
+ 
+@@ -4444,11 +4452,11 @@
+ 	characters are now considered graphic characters and hence yield false
+ 	in this call.
+ 
+-        * nmake.adt: Modify header so that xnmake does not generate output
+-        files with multiple blank lines.
++	* nmake.adt: Modify header so that xnmake does not generate output
++	files with multiple blank lines.
+ 
+-        * treeprs.adt: Remove a blank line so that output from xtreeprs does
+-        not have an extra blank line
++	* treeprs.adt: Remove a blank line so that output from xtreeprs does
++	not have an extra blank line
+ 
+ 2005-06-14  Gary Dismukes  <dismukes@adacore.com>
+ 
+@@ -4480,7 +4488,6 @@
+ 	    Ed Schonberg  <schonberg@adacore.com>
+ 
+ 	PR ada/10671
+-
+ 	* sem_prag.adb: Implement pragma Persistent_BSS
+ 	Remove obsolete pragma Persistent_Data, Persistent_Object
+ 	Set Ada_Version_Explicit, for implementation of AI-362
+@@ -4545,8 +4552,8 @@
+ 	* nmake.adt: Modify header so that xnmake does not generate output
+ 	files with multiple blank lines.
+ 
+-        * treeprs.adt: Remove a blank line so that output from xtreeprs does
+-        not have an extra blank line
++	* treeprs.adt: Remove a blank line so that output from xtreeprs does
++	not have an extra blank line
+ 
+ 2005-06-14  Sergey Rybin  <rybin@adacore.com>
+ 
+@@ -4570,7 +4577,7 @@
+ 	Add UNNECESSARY_BLANK_LINES for -gnatyu
+ 	Add qualifiers /ALL_PROJECTS (-U) for GNAT PRETTY and GNAT METRIC
+ 
+-        * ug_words: Add entry for -gnaty/Y [NO]ADA_2005_COMPATIBILITY
++	* ug_words: Add entry for -gnaty/Y [NO]ADA_2005_COMPATIBILITY
+ 
+ 2005-06-14  Vincent Celier  <celier@adacore.com>
+ 
+@@ -4671,7 +4678,7 @@
+ 	object directories of project files before directories in ADA_*_PATH
+ 	environment variables.
+ 
+-        * g-trasym.ads: Document that IRIX is supported
++	* g-trasym.ads: Document that IRIX is supported
+ 
+ 2005-06-10  Arnaud Charlet  <charlet@adacore.com>
+ 
+@@ -4766,9 +4773,9 @@
+ 
+ 2005-04-16  Laurent GUERBY  <laurent@guerby.net>
+ 
+-        PR ada/18847
+-        * a-nudira.adb (Value): Check for valid string.
+-        * a-nuflra.adb (Value): Likewise.
++	PR ada/18847
++	* a-nudira.adb (Value): Check for valid string.
++	* a-nuflra.adb (Value): Likewise.
+ 
+ 2005-04-11  Richard Sandiford  <rsandifo@redhat.com>
+ 
+@@ -4941,7 +4948,6 @@
+ 	Generic_Dispatching_Constructor.
+ 
+ 	PR ada/20300
+-
+ 	* sem_ch8.adb (Find_Direct_Name): Go to root type for check of
+ 	character type cases.
+ 	(Analyze_Subprogram_Renaming): Add special handling for
+@@ -5241,13 +5247,12 @@
+ 
+ 	* Makefile.in: (ia64-hp-*vms*): Use s-crtl-vms64.ads.
+ 
+-        * 5xcrtl.ads: Renamed to...
+-        * s-crtl-vms64.ads: ...this new file
++	* 5xcrtl.ads: Renamed to...
++	* s-crtl-vms64.ads: ...this new file
+ 
+ 2005-03-17  Robert Dewar  <dewar@adacore.com>
+ 
+ 	PR ada/19519
+-
+ 	* namet.adb (Copy_One_Character): Set proper wide character encoding
+ 	for upper half character if we have upper half encoding.
+ 
+@@ -5623,7 +5628,6 @@
+ 2005-03-15  Robert Dewar  <dewar@adacore.com>
+ 
+ 	PR ada/13470
+-
+ 	* a-stunau.ads, a-stunau.adb:
+ 	Change interface to allow efficient (and correct) implementation
+ 	The previous changes to allow extra space in unbounded strings had
+@@ -5786,7 +5790,6 @@
+ 	PR ada/19408
+ 	PR ada/19140
+ 	PR ada/20255
+-
+ 	* decl.c (gnat_to_gnu_field): Reject aliased components with a
+ 	representation clause that prescribes a size not equal to the rounded
+ 	size of their types.
+@@ -5945,7 +5948,6 @@
+ 
+ 	PR ada/20226
+ 	PR ada/20344
+-
+ 	* init.c (__gnat_initialize): Do not call __gnat_install_SEH_handler()
+ 	when IN_RTS. This is to work around a bootstrap path problem.
+ 
+@@ -6656,8 +6658,7 @@
+ 2005-02-09  Eric Botcazou  <ebotcazou@adacore.com>
+ 	    Richard Kenner  <kenner@vlsi1.ultra.nyu.edu>
+ 
+-	Fix for c330001 - PR ada/19386
+-
++	PR ada/19386
+ 	* decl.c:
+ 	(gnat_to_gnu_field): Do not necessarily invoke make_packable_type
+ 	on the field if Pragma Component_Alignment (Storage_Unit).
+@@ -6757,7 +6758,6 @@
+ 2005-02-09  Arnaud Charlet  <charlet@adacore.com>
+ 
+ 	PR ada/16592
+-
+ 	* Makefile.in: Link all gnat tools with -static-libgcc, since
+ 	-shared-libgcc is now used by default on some systems (e.g. linux with
+ 	recent binutils).
+@@ -8547,7 +8547,6 @@
+ 2004-10-04  Bernard Banner  <banner@gnat.com>
+ 
+ 	PR ada/13897
+-
+ 	* Makefile.in: Add section for powerpc linux
+ 	Add variant i-vxwork-x86.ads
+ 
+@@ -8823,7 +8822,6 @@
+ 2004-09-23  Robert Dewar  <dewar@gnat.com>
+ 
+ 	PR ada/17540
+-
+ 	* sem_prag.adb (Process_Import_Or_Interface): Don't set Is_Public here,
+ 	instead do this at freeze time (we won't do it if there is an address
+ 	clause).
+@@ -8868,7 +8866,6 @@
+ 2004-09-20  Robert Dewar  <dewar@gnat.com>
+ 
+ 	PR ada/17540
+-
+ 	* freeze.adb (Check_Address_Clause): Reset Is_Imported and Is_Public
+ 	if an address clause is present, since that means that the Import
+ 	should be ignored.
+@@ -9547,7 +9544,6 @@
+ 2004-08-09  Ed Schonberg  <schonberg@gnat.com>
+ 
+ 	PR ada/15408
+-
+ 	* sem_ch7.adb (Install_Private_Declarations): In the body of the
+ 	package or of a child, private entities are both immediately_visible
+ 	and not hidden.
+@@ -11085,7 +11081,6 @@
+ 2004-06-11  Hristian Kirtchev  <kirtchev@gnat.com>
+ 
+ 	PR ada/15587
+-
+ 	* einfo.ads: Minor comment updates for Has_Completion and
+ 	E_Constant list of flags.
+ 
+@@ -11168,7 +11163,6 @@
+ 2004-06-11  Ed Schonberg  <schonberg@gnat.com>
+ 
+ 	PR ada/15403
+-
+ 	* sem_ch12.adb (Save_References): If operator node has been folded to
+ 	enumeration literal, associated_node must be discarded.
+ 
+@@ -11180,7 +11174,6 @@
+ 2004-06-08  Arnaud Charlet  <charlet@act-europe.fr>
+ 
+ 	PR ada/15568
+-
+ 	* Makefile.in: Remove target specific SO_OPT on IRIX
+ 
+ 2004-06-07  Richard Kenner  <kenner@vlsi1.ultra.nyu.edu>
+@@ -12395,7 +12388,6 @@
+ 2004-05-03  Olivier Hainque  <hainque@act-europe.fr>
+ 
+ 	PR ada/15152
+-
+ 	* exp_ch2.adb (Expand_Current_Value): Leave Machine_Code Asm arguments
+ 	alone. Replacing object references by literals is inappropriate in a
+ 	so low level context.
+@@ -14726,7 +14718,8 @@
+ 2004-02-10  Arnaud Charlet  <charlet@act-europe.fr>,
+ 	    Nathanael Nerode  <neroden@gcc.gnu.org>
+ 
+-	PR ada/6637, PR ada/5911
++	PR ada/6637
++	PR ada/5911
+ 	Merge with libada-branch:
+ 	* config-lang.in: Build libada only when ada is built.
+ 
+@@ -15858,7 +15851,6 @@
+ 	 Fixes ACATS regressions.
+ 
+ 	PR ada/13353
+-
+ 	* sem_prag.adb (Back_End_Cannot_Inline): A renaming_as_body can always
+ 	be inlined.
+ 
+@@ -16095,7 +16087,6 @@
+ 2003-12-03  Thomas Quinot  <quinot@act-europe.fr>
+ 
+ 	PR ada/11724
+-
+ 	* adaint.h, adaint.c, g-os_lib.ads:
+ 	Do not assume that the offset argument to lseek(2) is a 32 bit integer,
+ 	on some platforms (including FreeBSD), it is a 64 bit value.
+@@ -17119,7 +17110,6 @@
+ 2003-11-04  Richard Kenner  <kenner@vlsi1.ultra.nyu.edu>
+ 
+ 	Part of PR ada/12806
+-
+ 	* ada-tree.h (TYPE_DIGITS_VALUE, SET_TYPE_DIGITS_VALUE): Save count as
+ 	tree, not integer.
+ 
+@@ -17433,7 +17423,7 @@
+ 
+ 	* Makefile.generic: Add missing substitution on object_deps handling.
+ 
+-	PR ada/5909:
++	PR ada/5909
+ 	* Make-lang.in (check-ada): Enable ACATS test suite.
+ 
+ 2003-10-27  Robert Dewar  <dewar@gnat.com>
+@@ -17502,13 +17492,13 @@
+ 
+ 2003-10-24  Pascal Obry  <obry@gnat.com>
+ 
++	PR ada/12014
+ 	* adadecode.c (ostrcpy): New function.
+ 	(__gnat_decode): Use ostrcpy of strcpy.
+ 	(has_prefix): Set first parameter a const.
+ 	(has_suffix): Set first parameter a const.
+ 	Update copyright notice. Fix source name in header.
+ 	Removes a trailing space.
+-	PR ada/12014.
+ 
+ 2003-10-24  Jose Ruiz  <ruiz@act-europe.fr>
+ 
+@@ -17583,13 +17573,13 @@
+ 
+ 2003-10-23  Thomas Quinot  <quinot@act-europe.fr>
+ 
+-	PR ada/11978:
++	PR ada/11978
+ 	* exp_ch13.adb (Expand_N_Freeze_Entity): Do not consider inherited
+ 	External_Tag attribute definition clauses.
+ 
+ 2003-10-23  Ed Schonberg  <schonberg@gnat.com>
+ 
+-	PR ada/7613:
++	PR ada/7613
+ 	* exp_dbug.adb (Debug_Renaming_Declaration): For the renaming of a
+ 	child unit, generate a fully qualified name to avoid spurious errors
+ 	when the context contains renamings of different child units with
+@@ -17652,7 +17642,8 @@
+ 
+ 2003-10-22  Arnaud Charlet  <charlet@act-europe.fr>
+ 
+-	* Makefile.in: Disable build of gnatpsta. PR ada/10110.
++	PR ada/10110
++	* Makefile.in: Disable build of gnatpsta.
+ 	* cstreams.c (__gnat_full_name): Minor improvements and clean up
+ 	of previous change.
+ 
+@@ -18187,7 +18178,7 @@
+ 
+ 2003-06-04  Olivier Hainque  <hainque@act-europe.fr>
+ 
+-	PR ada/9953:
++	PR ada/9953
+ 	* 5hsystem.ads: Remove pragma Linker_Option for pthreads library,
+ 	and turn ZCX_By_Default back to False since the underlying support
+ 	is not quite there yet.
+@@ -18640,7 +18631,7 @@
+ 
+ 2003-02-18  Ben Elliston  <bje@redhat.com>
+ 
+-	Part of fix for PR ada/9406
++	Part of PR ada/9406
+ 	* gnat_ug.texi (Binder output file): Grammar fix.
+ 
+ 2003-02-18  Ben Elliston  <bje@redhat.com>
+@@ -18749,9 +18740,10 @@
+ 
+ 2002-12-14   Geert Bosch <bosch@gnat.com>
+ 
++	PR ada/5690
+ 	* sem_ch6.adb (Analyze_Subprogram_Body): Recognize additional
+ 	case of a body created for a Renaming_As_Body, on which
+-	conformance checks are not performed. Fixes PR ada/5690.
++	conformance checks are not performed.
+ 
+ 2002-11-30  Zack Weinberg  <zack@codesourcery.com>
+ 
+@@ -18765,7 +18757,9 @@
+ 	solution to buffer overflow bug on GNU/Linux.
+ 
+ 2002-11-14  Nathanael Nerode  <neroden@gcc.gnu.org>
+-	Closes PR ada/5856 and PR ada/6919 !
++
++	PR ada/5856
++	PR ada/6919
+ 	* bindgen.adb: Remove all references to Public_Version.
+ 	* comperr.adb: Remove all references to Public_Version and
+ 	GNATPRO_Version; correct bug reporting instructions.
+@@ -18774,6 +18768,7 @@
+ 	GNATPRO version.
+ 
+ 2002-11-13  Nathanael Nerode  <neroden@gcc.gnu.org>
++
+ 	PR ada/6919
+ 	* adaint.c (__gnat_tmp_name): Remove buffer overflow bug on
+ 	GNU/Linux.
+@@ -18782,21 +18777,25 @@
+ 	* config-lang.in: Remove diff_excludes.
+ 
+ 2002-11-05  Graham Stott  <graham.stott@btinternet.com>
++
+ 	PR ada/8358
+ 	* trans.c (gnu_pending_elaboration_lists): New GC root.
+ 	(build_unit_elab): Use..
+ 
+ 2002-10-30   Geert Bosch <bosch@gnat.com>
++
+ 	PR ada/6558
+ 	* misc.c : Include optabs.h
+ 
+ 	* Make-lang.in (misc.o): Add dependency on optabs.h
+ 
+ 2002-10-29   Geert Bosch <bosch@gnat.com>
++
+ 	PR ada/6558
+ 	* Make-lang.in (gnatbind): Depend on CONFIG_H
+ 
+ 2002-10-29  Geert bosch  <bosch@gnat.com>
++
+ 	PR ada/6558
+ 	* misc.c: Unrevert misc.c (1.13)
+ 
+@@ -18806,6 +18805,7 @@
+ 	maintainership comments.
+ 
+ 2002-09-25  Nathanael Nerode  <neroden@gcc.gnu.org>
++
+ 	PR ada/5904
+ 	* 5ataprop.adb 5atpopsp.adb 5bosinte.adb 5ftaprop.adb
+ 	5gtaprop.adb 5htaprop.adb 5rosinte.ads 5staprop.adb
+Index: gcc/ada/trans.c
+===================================================================
+--- gcc/ada/trans.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/ada/trans.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -4315,7 +4315,8 @@
+ void
+ add_decl_expr (tree gnu_decl, Entity_Id gnat_entity)
+ {
+-  tree gnu_stmt;
++  tree type = TREE_TYPE (gnu_decl);
++  tree gnu_stmt, gnu_init, gnu_lhs;
+ 
+   /* If this is a variable that Gigi is to ignore, we may have been given
+      an ERROR_MARK.  So test for it.  We also might have been given a
+@@ -4323,7 +4324,7 @@
+      ignore a TYPE_DECL for an UNCONSTRAINED_ARRAY_TYPE.  */
+   if (!DECL_P (gnu_decl)
+       || (TREE_CODE (gnu_decl) == TYPE_DECL
+-	  && TREE_CODE (TREE_TYPE (gnu_decl)) == UNCONSTRAINED_ARRAY_TYPE))
++	  && TREE_CODE (type) == UNCONSTRAINED_ARRAY_TYPE))
+     return;
+ 
+   /* If we are global, we don't want to actually output the DECL_EXPR for
+@@ -4345,41 +4346,32 @@
+ 	}
+     }
+ 
+-  /* If this is a DECL_EXPR for a variable with DECL_INITIAL set,
+-     there are two cases we need to handle here.  */
+-  if (TREE_CODE (gnu_decl) == VAR_DECL && DECL_INITIAL (gnu_decl))
++  /* If this is a variable and an initializer is attached to it, it must be
++     valid for the context.  Similar to init_const in create_var_decl_1.  */ 
++  if (TREE_CODE (gnu_decl) == VAR_DECL
++      && (gnu_init = DECL_INITIAL (gnu_decl)) != NULL_TREE
++      && (TYPE_MAIN_VARIANT (type) != TYPE_MAIN_VARIANT (TREE_TYPE (gnu_init))
++	  || (TREE_STATIC (gnu_decl)
++	      && !initializer_constant_valid_p (gnu_init,
++						TREE_TYPE (gnu_init)))))
+     {
+-      tree gnu_init = DECL_INITIAL (gnu_decl);
+-      tree gnu_lhs = NULL_TREE;
+-
+-      /* If this is a DECL_EXPR for a variable with DECL_INITIAL set
+-	 and decl has a padded type, convert it to the unpadded type so the
+-	 assignment is done properly.  */
+-      if (TREE_CODE (TREE_TYPE (gnu_decl)) == RECORD_TYPE
+-	  && TYPE_IS_PADDING_P (TREE_TYPE (gnu_decl)))
+-	gnu_lhs
+-	  = convert (TREE_TYPE (TYPE_FIELDS (TREE_TYPE (gnu_decl))), gnu_decl);
+-
+-      /* Otherwise, if this is going into memory and the initializer isn't
+-	 valid for the assembler and loader.  Gimplification could do this,
+-	 but would be run too late if -fno-unit-at-a-time.  */
+-      else if (TREE_STATIC (gnu_decl)
+-	       && !initializer_constant_valid_p (gnu_init,
+-						 TREE_TYPE (gnu_decl)))
++      /* If GNU_DECL has a padded type, convert it to the unpadded
++	 type so the assignment is done properly.  */
++      if (TREE_CODE (type) == RECORD_TYPE && TYPE_IS_PADDING_P (type))
++	gnu_lhs = convert (TREE_TYPE (TYPE_FIELDS (type)), gnu_decl);
++      else
+ 	gnu_lhs = gnu_decl;
+ 
+-      if (gnu_lhs)
+-	{
+-	  tree gnu_assign_stmt
+-	    = build_binary_op (MODIFY_EXPR, NULL_TREE,
+-			       gnu_lhs, DECL_INITIAL (gnu_decl));
++      gnu_stmt = build_binary_op (MODIFY_EXPR, NULL_TREE, gnu_lhs, gnu_init);
+ 
+-	  DECL_INITIAL (gnu_decl) = 0;
++      DECL_INITIAL (gnu_decl) = NULL_TREE;
++      if (TREE_READONLY (gnu_decl))
++	{
+ 	  TREE_READONLY (gnu_decl) = 0;
+-	  annotate_with_locus (gnu_assign_stmt,
+-			       DECL_SOURCE_LOCATION (gnu_decl));
+-	  add_stmt (gnu_assign_stmt);
++	  DECL_READONLY_ONCE_ELAB (gnu_decl) = 1;
+ 	}
++
++      add_stmt_with_node (gnu_stmt, gnat_entity);
+     }
+ }
+ 
+Index: gcc/ada/ada-tree.h
+===================================================================
+--- gcc/ada/ada-tree.h	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/ada/ada-tree.h	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -235,6 +235,10 @@
+    discriminant.  */
+ #define DECL_STUBBED_P(NODE) DECL_LANG_FLAG_0 (FUNCTION_DECL_CHECK (NODE))
+ 
++/* Nonzero in a VAR_DECL if it is guaranteed to be constant after having
++   been elaborated and TREE_READONLY is not set on it.  */
++#define DECL_READONLY_ONCE_ELAB(NODE) DECL_LANG_FLAG_0 (VAR_DECL_CHECK (NODE))
++
+ /* Nonzero if this decl is always used by reference; i.e., an INDIRECT_REF
+    is needed to access the object.  */
+ #define DECL_BY_REF_P(NODE) DECL_LANG_FLAG_1 (NODE)
+Index: gcc/ada/misc.c
+===================================================================
+--- gcc/ada/misc.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/ada/misc.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -370,6 +370,9 @@
+   if (flag_inline_functions)
+     flag_inline_trees = 2;
+ 
++  /* The structural alias analysis machinery essentially assumes that
++     everything is addressable (modulo bit-fields) by disregarding
++     the TYPE_NONALIASED_COMPONENT and DECL_NONADDRESSABLE_P macros.  */
+   flag_tree_salias = 0;
+ 
+   /* Do not enable Tree-SRA unless specifically requested as it
+Index: gcc/ada/decl.c
+===================================================================
+--- gcc/ada/decl.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/ada/decl.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -4732,7 +4732,8 @@
+ 
+   expr_variable = (!CONSTANT_CLASS_P (gnu_expr)
+ 		   && !(TREE_CODE (gnu_inner_expr) == VAR_DECL
+-			&& TREE_READONLY (gnu_inner_expr))
++			&& (TREE_READONLY (gnu_inner_expr)
++			    || DECL_READONLY_ONCE_ELAB (gnu_inner_expr)))
+ 		   && !CONTAINS_PLACEHOLDER_P (gnu_expr));
+ 
+   /* If this is a static expression or contains a discriminant, we don't
+Index: gcc/fortran/intrinsic.c
+===================================================================
+--- gcc/fortran/intrinsic.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/intrinsic.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -3269,8 +3269,7 @@
+   /* TODO: We should probably only allow elemental functions here.  */
+   flag |= (expr->ts.type != BT_INTEGER && expr->ts.type != BT_CHARACTER);
+ 
+-  if (pedantic && gfc_init_expr
+-      && flag && gfc_init_expr_extensions (specific))
++  if (gfc_init_expr && flag && gfc_init_expr_extensions (specific))
+     {
+       if (gfc_notify_std (GFC_STD_GNU, "Extension: Evaluation of "
+ 	    "nonstandard initialization expression at %L", &expr->where)
+Index: gcc/fortran/decl.c
+===================================================================
+--- gcc/fortran/decl.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/decl.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -758,7 +758,7 @@
+    INIT points to its enumerator value.   */
+ 
+ static void 
+-create_enum_history(gfc_symbol *sym, gfc_expr *init)
++create_enum_history (gfc_symbol *sym, gfc_expr *init)
+ {
+   enumerator_history *new_enum_history;
+   gcc_assert (sym != NULL && init != NULL);
+@@ -789,7 +789,7 @@
+ /* Function to free enum kind history.  */ 
+ 
+ void 
+-gfc_free_enum_history(void)
++gfc_free_enum_history (void)
+ {
+   enumerator_history *current = enum_history;  
+   enumerator_history *next;  
+@@ -805,7 +805,7 @@
+ }
+ 
+ 
+-/* Function called by variable_decl() that adds an initialization
++/* Function called by variabl_decl() that adds an initialization
+    expression to a symbol.  */
+ 
+ static try
+@@ -911,10 +911,6 @@
+       *initp = NULL;
+     }
+ 
+-  /* Maintain enumerator history.  */
+-  if (gfc_current_state () == COMP_ENUM)
+-    create_enum_history (sym, init);
+-
+   return SUCCESS;
+ }
+ 
+@@ -1073,15 +1069,7 @@
+ 
+   if (m == MATCH_NO)
+     as = gfc_copy_array_spec (current_as);
+-  else if (gfc_current_state () == COMP_ENUM)
+-    {
+-      gfc_error ("Enumerator cannot be array at %C");
+-      gfc_free_enum_history ();
+-      m = MATCH_ERROR;
+-      goto cleanup;
+-    }
+ 
+-
+   char_len = NULL;
+   cl = NULL;
+ 
+@@ -1179,10 +1167,11 @@
+       goto cleanup;
+     }
+ 
+-  /* An interface body specifies all of the procedure's characteristics and these
+-     shall be consistent with those specified in the procedure definition, except
+-     that the interface may specify a procedure that is not pure if the procedure
+-     is defined to be pure(12.3.2).  */
++  /* An interface body specifies all of the procedure's
++     characteristics and these shall be consistent with those
++     specified in the procedure definition, except that the interface
++     may specify a procedure that is not pure if the procedure is
++     defined to be pure(12.3.2).  */
+   if (current_ts.type == BT_DERIVED
+ 	&& gfc_current_ns->proc_name->attr.if_source == IFSRC_IFBODY
+ 	&& current_ts.derived->ns != gfc_current_ns)
+@@ -1288,30 +1277,6 @@
+ 	}
+     }
+ 
+-  /* Check if we are parsing an enumeration and if the current enumerator
+-     variable has an initializer or not. If it does not have an
+-     initializer, the initialization value of the previous enumerator 
+-     (stored in last_initializer) is incremented by 1 and is used to
+-     initialize the current enumerator.  */
+-  if (gfc_current_state () == COMP_ENUM)
+-    {
+-      if (initializer == NULL)
+-        initializer = gfc_enum_initializer (last_initializer, old_locus);
+- 
+-      if (initializer == NULL || initializer->ts.type != BT_INTEGER)
+-        {
+-          gfc_error("ENUMERATOR %L not initialized with integer expression",
+-		    &var_locus);
+-          m = MATCH_ERROR; 
+-          gfc_free_enum_history ();
+-          goto cleanup;
+-        }
+-
+-      /* Store this current initializer, for the next enumerator
+-	 variable to be parsed.  */
+-      last_initializer = initializer;
+-    }
+-
+   /* Add the initializer.  Note that it is fine if initializer is
+      NULL here, because we sometimes also need to check if a
+      declaration *must* have an initialization expression.  */
+@@ -2033,12 +1998,6 @@
+       if (d == DECL_NONE || d == DECL_COLON)
+ 	break;
+        
+-      if (gfc_current_state () == COMP_ENUM)
+-        {
+-          gfc_error ("Enumerator cannot have attributes %C");
+-          return MATCH_ERROR;
+-        }
+-
+       seen[d]++;
+       seen_at[d] = gfc_current_locus;
+ 
+@@ -2057,18 +2016,6 @@
+ 	}
+     }
+ 
+-  /* If we are parsing an enumeration and have ensured that no other
+-     attributes are present we can now set the parameter attribute.  */
+-  if (gfc_current_state () == COMP_ENUM)
+-    {
+-      t = gfc_add_flavor (&current_attr, FL_PARAMETER, NULL, NULL);
+-      if (t == FAILURE)
+-        {
+-          m = MATCH_ERROR;
+-          goto cleanup;
+-        }
+-    }
+-
+   /* No double colon, so assume that we've been looking at something
+      else the whole time.  */
+   if (d == DECL_NONE)
+@@ -4081,7 +4028,7 @@
+     return m;
+ 
+   if (gfc_notify_std (GFC_STD_F2003, 
+-		      "New in Fortran 2003: ENUM AND ENUMERATOR at %C")
++		      "New in Fortran 2003: ENUM and ENUMERATOR at %C")
+       == FAILURE)
+     return MATCH_ERROR;
+ 
+@@ -4089,19 +4036,116 @@
+ }
+ 
+ 
++/* Match a variable name with an optional initializer.  When this
++   subroutine is called, a variable is expected to be parsed next.
++   Depending on what is happening at the moment, updates either the
++   symbol table or the current interface.  */
++
++static match
++enumerator_decl (void)
++{
++  char name[GFC_MAX_SYMBOL_LEN + 1];
++  gfc_expr *initializer;
++  gfc_array_spec *as = NULL;
++  gfc_symbol *sym;
++  locus var_locus;
++  match m;
++  try t;
++  locus old_locus;
++
++  initializer = NULL;
++  old_locus = gfc_current_locus;
++
++  /* When we get here, we've just matched a list of attributes and
++     maybe a type and a double colon.  The next thing we expect to see
++     is the name of the symbol.  */
++  m = gfc_match_name (name);
++  if (m != MATCH_YES)
++    goto cleanup;
++
++  var_locus = gfc_current_locus;
++
++  /* OK, we've successfully matched the declaration.  Now put the
++     symbol in the current namespace. If we fail to create the symbol,
++     bail out.  */
++  if (build_sym (name, NULL, &as, &var_locus) == FAILURE)
++    {
++      m = MATCH_ERROR;
++      goto cleanup;
++    }
++
++  /* The double colon must be present in order to have initializers.
++     Otherwise the statement is ambiguous with an assignment statement.  */
++  if (colon_seen)
++    {
++      if (gfc_match_char ('=') == MATCH_YES)
++	{
++	  m = gfc_match_init_expr (&initializer);
++	  if (m == MATCH_NO)
++	    {
++	      gfc_error ("Expected an initialization expression at %C");
++	      m = MATCH_ERROR;
++	    }
++
++	  if (m != MATCH_YES)
++	    goto cleanup;
++	}
++    }
++
++  /* If we do not have an initializer, the initialization value of the
++     previous enumerator (stored in last_initializer) is incremented
++     by 1 and is used to initialize the current enumerator.  */
++  if (initializer == NULL)
++    initializer = gfc_enum_initializer (last_initializer, old_locus);
++ 
++  if (initializer == NULL || initializer->ts.type != BT_INTEGER)
++    {
++      gfc_error("ENUMERATOR %L not initialized with integer expression",
++		&var_locus);
++      m = MATCH_ERROR; 
++      gfc_free_enum_history ();
++      goto cleanup;
++    }
++
++  /* Store this current initializer, for the next enumerator variable
++     to be parsed.  add_init_expr_to_sym() zeros initializer, so we
++     use last_initializer below.  */
++  last_initializer = initializer;
++  t = add_init_expr_to_sym (name, &initializer, &var_locus);
++
++  /* Maintain enumerator history.  */
++  gfc_find_symbol (name, NULL, 0, &sym);
++  create_enum_history (sym, last_initializer);
++
++  return (t == SUCCESS) ? MATCH_YES : MATCH_ERROR;
++
++cleanup:
++  /* Free stuff up and return.  */
++  gfc_free_expr (initializer);
++
++  return m;
++}
++
++
+ /* Match the enumerator definition statement. */
+ 
+ match
+ gfc_match_enumerator_def (void)
+ {
+   match m;
+-  int elem; 
++  try t;
+   
+   gfc_clear_ts (&current_ts);
+   
+   m = gfc_match (" enumerator");
+   if (m != MATCH_YES)
+     return m;
++
++  m = gfc_match (" :: ");
++  if (m == MATCH_ERROR)
++    return m;
++
++  colon_seen = (m == MATCH_YES);
+   
+   if (gfc_current_state () != COMP_ENUM)
+     {
+@@ -4113,17 +4157,17 @@
+   (&current_ts)->type = BT_INTEGER;
+   (&current_ts)->kind = gfc_c_int_kind;
+   
+-  m = match_attr_spec ();
+-  if (m == MATCH_ERROR)
++  gfc_clear_attr (&current_attr);
++  t = gfc_add_flavor (&current_attr, FL_PARAMETER, NULL, NULL);
++  if (t == FAILURE)
+     {
+-      m = MATCH_NO;
++      m = MATCH_ERROR;
+       goto cleanup;
+     }
+ 
+-  elem = 1;
+   for (;;)
+     {
+-      m = variable_decl (elem++);
++      m = enumerator_decl ();
+       if (m == MATCH_ERROR)
+ 	goto cleanup;
+       if (m == MATCH_NO)
+Index: gcc/fortran/match.c
+===================================================================
+--- gcc/fortran/match.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/match.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,5 +1,5 @@
+ /* Matching subroutines in all sizes, shapes and colors.
+-   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006
++   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
+    Free Software Foundation, Inc.
+    Contributed by Andy Vaught
+ 
+@@ -3328,8 +3328,11 @@
+ 
+ /* Match an iterator as part of a FORALL statement.  The format is:
+ 
+-     <var> = <start>:<end>[:<stride>][, <scalar mask>]  */
++     <var> = <start>:<end>[:<stride>]
+ 
++   On MATCH_NO, the caller tests for the possibility that there is a
++   scalar mask expression.  */
++
+ static match
+ match_forall_iterator (gfc_forall_iterator ** result)
+ {
+@@ -3340,11 +3343,12 @@
+   where = gfc_current_locus;
+   iter = gfc_getmem (sizeof (gfc_forall_iterator));
+ 
+-  m = gfc_match_variable (&iter->var, 0);
++  m = gfc_match_expr (&iter->var);
+   if (m != MATCH_YES)
+     goto cleanup;
+ 
+-  if (gfc_match_char ('=') != MATCH_YES)
++  if (gfc_match_char ('=') != MATCH_YES
++	|| iter->var->expr_type != EXPR_VARIABLE)
+     {
+       m = MATCH_NO;
+       goto cleanup;
+@@ -3382,13 +3386,6 @@
+   m = MATCH_ERROR;
+ 
+ cleanup:
+-  /* Make sure that potential internal function references in the
+-     mask do not get messed up.  */
+-  if (iter->var
+-	&& iter->var->expr_type == EXPR_VARIABLE
+-	&& iter->var->symtree->n.sym->refs == 1)
+-    iter->var->symtree->n.sym->attr.flavor = FL_UNKNOWN;
+-
+   gfc_current_locus = where;
+   gfc_free_forall_iterator (iter);
+   return m;
+Index: gcc/fortran/trans-decl.c
+===================================================================
+--- gcc/fortran/trans-decl.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/trans-decl.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1670,7 +1670,8 @@
+   create_function_arglist (ns->proc_name);
+ }
+ 
+-/* Return the decl used to hold the function return value.  */
++/* Return the decl used to hold the function return value.  If
++   parent_flag is set, the context is the parent_scope.  */
+ 
+ tree
+ gfc_get_fake_result_decl (gfc_symbol * sym)
+@@ -1735,9 +1736,12 @@
+       sprintf (name, "__result_%.20s",
+ 	       IDENTIFIER_POINTER (DECL_NAME (current_function_decl)));
+ 
+-      decl = build_decl (VAR_DECL, get_identifier (name),
+-			 TREE_TYPE (TREE_TYPE (current_function_decl)));
+-
++      if (!sym->attr.mixed_entry_master && sym->attr.function)
++	decl = build_decl (VAR_DECL, get_identifier (name),
++			   gfc_sym_type (sym));
++      else
++	decl = build_decl (VAR_DECL, get_identifier (name),
++			   TREE_TYPE (TREE_TYPE (current_function_decl)));
+       DECL_ARTIFICIAL (decl) = 1;
+       DECL_EXTERNAL (decl) = 0;
+       TREE_PUBLIC (decl) = 0;
+@@ -2858,9 +2862,12 @@
+ 	warning (0, "Function return value not set");
+       else
+ 	{
+-	  /* Set the return value to the dummy result variable.  */
+-	  tmp = build2 (MODIFY_EXPR, TREE_TYPE (result),
+-			DECL_RESULT (fndecl), result);
++	  /* Set the return value to the dummy result variable.  The
++	     types may be different for scalar default REAL functions
++	     with -ff2c, therefore we have to convert.  */
++	  tmp = convert (TREE_TYPE (DECL_RESULT (fndecl)), result);
++	  tmp = build2 (MODIFY_EXPR, TREE_TYPE (tmp),
++			DECL_RESULT (fndecl), tmp);
+ 	  tmp = build1_v (RETURN_EXPR, tmp);
+ 	  gfc_add_expr_to_block (&block, tmp);
+ 	}
+Index: gcc/fortran/ChangeLog
+===================================================================
+--- gcc/fortran/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,57 @@
++2007-03-05  Brooks Moses  <brooks.moses@codesourcery.com>
++
++	PR 31050
++	* gfortranspec.c (lang_specific_driver): Update program
++	name and copyright date.
++
++2007-03-01  Tobias Schlueter  <tobi@gcc.gnu.org>
++
++	Backport from trunk
++	PR fortran/29441
++	* intrinsic.c (gfc_intrinsic_func_interface): Always check if
++	intrinsic is allowed in initialization expression.
++
++2006-02-27  Tobias SchlÅ¸ter  <tobias.schlueter@physik.uni-muenchen.de>
++
++	PR fortran/25392
++	* trans-stmt.c (gfc_trans_return): Fix comment formatting.
++	* trans-types.c (gfc_sym_type): Don't return early for functions.
++	Remove special handling for -ff2c.
++	(gfc_get_function_type): Add special handling for -ff2c.
++	* trans-decl.c (gfc_create_function_decl): Fix comment formatting.
++	(gfc_get_fake_result_decl): Make sure we get the right type for
++	functions.
++	(gfc_generate_function_code): Convert type of result variable to
++	type of function.
++
++2007-02-25  Roger Sayle  <roger@eyesopen.com>
++	    Paul Thomas <pault@gcc.gnu.org>
++
++        PR fortran/30400
++        * match.c (match_forall_iterator): Use gfc_match_expr instead
++	of gfc_match_variable to match the iterator variable.  Return
++	MATCH_NO if not a variable.  Remove the reset of the symbol's
++	flavor in cleanup.
++
++2007-02-15  Steven G. Kargl  <kargl@gcc.gnu.org>
++
++	PR fortran/30799
++	* primary.c (match_logical_constant): Return MATCH_ERROR on invalid
++	kind.
++
++2007-02-15  Tobias Schlueter  <tobi@gcc.gnu.org>
++
++	PR fortran/30478
++	* decl.c (create_enum_history, gfc_free_enum_history): Formatting
++	fixes.
++	(add_init_expr_to_sym): Remove ENUM-specific code-path.
++	(variable_decl): Likewise.  Formatting fix.
++	(match_attr_spec): Remove ENUM-specific codepath.
++	(gfc_match_enum): Fix typo in error message.
++	(enumerator_decl): New.
++	(gfc_match_enumerator_def): Strip down to code necessary for
++	ENUMs, use enumerator_decl.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+Index: gcc/fortran/trans-stmt.c
+===================================================================
+--- gcc/fortran/trans-stmt.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/trans-stmt.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -437,7 +437,7 @@
+       tree tmp;
+       tree result;
+ 
+-      /* if code->expr is not NULL, this return statement must appear
++      /* If code->expr is not NULL, this return statement must appear
+          in a subroutine and current_fake_result_decl has already
+ 	 been generated.  */
+ 
+Index: gcc/fortran/primary.c
+===================================================================
+--- gcc/fortran/primary.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/primary.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1039,7 +1039,10 @@
+     kind = gfc_default_logical_kind;
+ 
+   if (gfc_validate_kind (BT_LOGICAL, kind, true) < 0)
+-    gfc_error ("Bad kind for logical constant at %C");
++    {
++      gfc_error ("Bad kind for logical constant at %C");
++      return MATCH_ERROR;
++    }
+ 
+   e = gfc_get_expr ();
+ 
+Index: gcc/fortran/trans-types.c
+===================================================================
+--- gcc/fortran/trans-types.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/trans-types.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1289,27 +1289,13 @@
+   if (sym->attr.flavor == FL_PROCEDURE && !sym->attr.function)
+     return void_type_node;
+ 
+-  if (sym->backend_decl)
+-    {
+-      if (sym->attr.function)
+-	return TREE_TYPE (TREE_TYPE (sym->backend_decl));
+-      else
+-	return TREE_TYPE (sym->backend_decl);
+-    }
++  /* In the case of a function the fake result variable may have a
++     type different from the function type, so don't return early in
++     that case.  */
++  if (sym->backend_decl && !sym->attr.function)
++    return TREE_TYPE (sym->backend_decl);
+ 
+   type = gfc_typenode_for_spec (&sym->ts);
+-  if (gfc_option.flag_f2c
+-      && sym->attr.function
+-      && sym->ts.type == BT_REAL
+-      && sym->ts.kind == gfc_default_real_kind
+-      && !sym->attr.always_explicit)
+-    {
+-      /* Special case: f2c calling conventions require that (scalar) 
+-	 default REAL functions return the C type double instead.  */
+-      sym->ts.kind = gfc_default_double_kind;
+-      type = gfc_typenode_for_spec (&sym->ts);
+-      sym->ts.kind = gfc_default_real_kind;
+-    }
+ 
+   if (sym->attr.dummy && !sym->attr.function)
+     byref = 1;
+@@ -1758,6 +1744,20 @@
+     type = void_type_node;
+   else if (sym->attr.mixed_entry_master)
+     type = gfc_get_mixed_entry_union (sym->ns);
++  else if (gfc_option.flag_f2c
++	   && sym->ts.type == BT_REAL
++	   && sym->ts.kind == gfc_default_real_kind
++	   && !sym->attr.always_explicit)
++    {
++      /* Special case: f2c calling conventions require that (scalar) 
++	 default REAL functions return the C type double instead.  f2c
++	 compatibility is only an issue with functions that don't
++	 require an explicit interface, as only these could be
++	 implemented in Fortran 77.  */
++      sym->ts.kind = gfc_default_double_kind;
++      type = gfc_typenode_for_spec (&sym->ts);
++      sym->ts.kind = gfc_default_real_kind;
++    }
+   else
+     type = gfc_sym_type (sym);
+ 
+Index: gcc/fortran/gfortranspec.c
+===================================================================
+--- gcc/fortran/gfortranspec.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/fortran/gfortranspec.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -346,8 +346,8 @@
+ 	  break;
+ 
+ 	case OPTION_version:
+-	  printf ("GNU Fortran 95 (GCC) %s\n", version_string);
+-	  printf ("Copyright %s 2006 Free Software Foundation, Inc.\n\n",
++	  printf ("GNU Fortran (GCC) %s\n", version_string);
++	  printf ("Copyright %s 2007 Free Software Foundation, Inc.\n\n",
+ 	          _("(C)"));
+ 	  printf (_("GNU Fortran comes with NO WARRANTY, to the extent permitted by law.\n\
+ You may redistribute copies of GNU Fortran\n\
+Index: gcc/tree-data-ref.c
+===================================================================
+--- gcc/tree-data-ref.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/tree-data-ref.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -146,7 +146,12 @@
+     tag_b = DR_MEMTAG (drb);
+   if (!tag_b)
+     return false;
+-  *aliased = (tag_a == tag_b);
++  
++  if (tag_a == tag_b)
++    *aliased = true;
++  else
++    *aliased = may_aliases_intersect (tag_a, tag_b);
++
+   return true;
+ }
+ 
+Index: gcc/tree-sra.c
+===================================================================
+--- gcc/tree-sra.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/tree-sra.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,7 +1,7 @@
+ /* Scalar Replacement of Aggregates (SRA) converts some structure
+    references into scalar references, exposing them to the scalar
+    optimizers.
+-   Copyright (C) 2003, 2004, 2005 Free Software Foundation, Inc.
++   Copyright (C) 2003, 2004, 2005, 2007 Free Software Foundation, Inc.
+    Contributed by Diego Novillo <dnovillo@redhat.com>
+ 
+ This file is part of GCC.
+@@ -1246,7 +1246,23 @@
+ 	tree f;
+ 	for (f = TYPE_FIELDS (type); f ; f = TREE_CHAIN (f))
+ 	  if (TREE_CODE (f) == FIELD_DECL)
+-	    instantiate_missing_elements_1 (elt, f, TREE_TYPE (f));
++	    {
++	      tree field_type = TREE_TYPE (f);
++
++	      /* canonicalize_component_ref() unwidens some bit-field
++		 types (not marked as DECL_BIT_FIELD in C++), so we
++		 must do the same, lest we may introduce type
++		 mismatches.  */
++	      if (INTEGRAL_TYPE_P (field_type)
++		  && DECL_MODE (f) != TYPE_MODE (field_type))
++		field_type = TREE_TYPE (get_unwidened (build3 (COMPONENT_REF,
++							       field_type,
++							       elt->element,
++							       f, NULL_TREE),
++						       NULL_TREE));
++
++	      instantiate_missing_elements_1 (elt, f, field_type);
++	    }
+ 	break;
+       }
+ 
+@@ -1539,6 +1555,14 @@
+     return elt->element;
+ }
+ 
++static tree
++sra_build_assignment (tree dst, tree src)
++{
++  /* We need TYPE_CANONICAL to compare the types of dst and src
++     efficiently, but that's only introduced in GCC 4.3.  */
++  return build (MODIFY_EXPR, void_type_node, dst, src);
++}
++
+ /* Generate a set of assignment statements in *LIST_P to copy all
+    instantiated elements under ELT to or from the equivalent structure
+    rooted at EXPR.  COPY_OUT controls the direction of the copy, with
+@@ -1562,16 +1586,16 @@
+       i = c->replacement;
+ 
+       t = build (COMPLEX_EXPR, elt->type, r, i);
+-      t = build (MODIFY_EXPR, void_type_node, expr, t);
++      t = sra_build_assignment (expr, t);
+       SSA_NAME_DEF_STMT (expr) = t;
+       append_to_statement_list (t, list_p);
+     }
+   else if (elt->replacement)
+     {
+       if (copy_out)
+-	t = build (MODIFY_EXPR, void_type_node, elt->replacement, expr);
++	t = sra_build_assignment (elt->replacement, expr);
+       else
+-	t = build (MODIFY_EXPR, void_type_node, expr, elt->replacement);
++	t = sra_build_assignment (expr, elt->replacement);
+       append_to_statement_list (t, list_p);
+     }
+   else
+@@ -1606,8 +1630,7 @@
+ 
+       gcc_assert (src->replacement);
+ 
+-      t = build (MODIFY_EXPR, void_type_node, dst->replacement,
+-		 src->replacement);
++      t = sra_build_assignment (dst->replacement, src->replacement);
+       append_to_statement_list (t, list_p);
+     }
+ }
+@@ -1638,7 +1661,7 @@
+       gcc_assert (elt->is_scalar);
+       t = fold_convert (elt->type, integer_zero_node);
+ 
+-      t = build (MODIFY_EXPR, void_type_node, elt->replacement, t);
++      t = sra_build_assignment (elt->replacement, t);
+       append_to_statement_list (t, list_p);
+     }
+ }
+@@ -1650,7 +1673,9 @@
+ generate_one_element_init (tree var, tree init, tree *list_p)
+ {
+   /* The replacement can be almost arbitrarily complex.  Gimplify.  */
+-  tree stmt = build (MODIFY_EXPR, void_type_node, var, init);
++  tree stmt;
++
++  stmt = sra_build_assignment (var, init);
+   gimplify_and_add (stmt, list_p);
+ }
+ 
+Index: gcc/tree-flow.h
+===================================================================
+--- gcc/tree-flow.h	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/tree-flow.h	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -610,6 +610,7 @@
+ extern void debug_points_to_info_for (tree);
+ extern bool may_be_aliased (tree);
+ extern bool is_aliased_with (tree, tree);
++extern bool may_aliases_intersect (tree, tree);
+ extern struct ptr_info_def *get_ptr_info (tree);
+ extern void add_type_alias (tree, tree);
+ extern void new_type_alias (tree, tree);
+Index: gcc/Makefile.in
+===================================================================
+--- gcc/Makefile.in	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/Makefile.in	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -391,7 +391,9 @@
+ # Purge it of unneccessary internal relative paths
+ # to directories that might not exist yet.
+ # The sed idiom for this is to repeat the search-and-replace until it doesn't match, using :a ... ta.
+-SYSTEM_HEADER_DIR = `echo @SYSTEM_HEADER_DIR@ | sed -e :a -e "s,[^/]*/\.\.\/,," -e ta`
++# Use single quotes here to avoid nested double- and backquotes, this
++# macro is also used in a double-quoted context.
++SYSTEM_HEADER_DIR = `echo @SYSTEM_HEADER_DIR@ | sed -e :a -e 's,[^/]*/\.\.\/,,' -e ta`
+ 
+ # Control whether to run fixproto and fixincludes.
+ STMP_FIXPROTO = @STMP_FIXPROTO@
+@@ -1933,7 +1935,7 @@
+    function.h $(TIMEVAR_H) convert.h $(TM_H) coretypes.h langhooks.h \
+    $(TREE_DUMP_H) tree-pass.h $(PARAMS_H) $(BASIC_BLOCK_H) $(DIAGNOSTIC_H) \
+    hard-reg-set.h $(TREE_GIMPLE_H) vec.h tree-ssa-structalias.h \
+-   $(IPA_TYPE_ESCAPE_H)
++   $(IPA_TYPE_ESCAPE_H) pointer-set.h
+ tree-ssa-reassoc.o : tree-ssa-reassoc.c $(TREE_FLOW_H) $(CONFIG_H) \
+    $(SYSTEM_H) $(TREE_H) $(GGC_H) $(DIAGNOSTIC_H) errors.h $(TIMEVAR_H) \
+    $(TM_H) coretypes.h $(TREE_DUMP_H) tree-pass.h $(FLAGS_H) tree-iterator.h\
+@@ -2420,7 +2422,7 @@
+    cfghooks.h $(DF_H) $(GCOV_IO_H) hard-reg-set.h $(TM_H) timevar.h tree-pass.h
+ haifa-sched.o : haifa-sched.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(RTL_H) \
+    $(SCHED_INT_H) $(REGS_H) hard-reg-set.h $(FLAGS_H) insn-config.h function.h \
+-   $(INSN_ATTR_H) toplev.h $(RECOG_H) except.h $(TM_P_H) $(TARGET_H)
++   $(INSN_ATTR_H) toplev.h $(RECOG_H) except.h $(TM_P_H) $(TARGET_H) $(PARAMS_H)
+ sched-deps.o : sched-deps.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+    $(RTL_H) $(SCHED_INT_H) $(REGS_H) hard-reg-set.h $(FLAGS_H) insn-config.h \
+    function.h $(INSN_ATTR_H) toplev.h $(RECOG_H) except.h cselib.h \
+Index: gcc/passes.c
+===================================================================
+--- gcc/passes.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/passes.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -848,6 +848,9 @@
+       dump_file = NULL;
+     }
+ 
++  /* Reset in_gimple_form to not break non-unit-at-a-time mode.  */
++  in_gimple_form = false;
++
+   return true;
+ }
+ 
+Index: gcc/config/avr/avr.h
+===================================================================
+--- gcc/config/avr/avr.h	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/config/avr/avr.h	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,6 +1,6 @@
+ /* Definitions of target machine for GNU compiler,
+    for ATMEL AVR at90s8515, ATmega103/103L, ATmega603/603L microcontrollers.
+-   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006
++   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
+    Free Software Foundation, Inc.
+    Contributed by Denis Chertykov (denisc@overta.ru)
+ 
+@@ -869,4 +869,6 @@
+ 
+ #define DWARF2_DEBUGGING_INFO 1
+ 
++#define DWARF2_ADDR_SIZE 4 
++
+ #define OBJECT_FORMAT_ELF
+Index: gcc/config/pa/predicates.md
+===================================================================
+--- gcc/config/pa/predicates.md	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/config/pa/predicates.md	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -206,11 +206,14 @@
+ ;; instruction.
+ 
+ (define_predicate "move_src_operand"
+-  (match_code "subreg,reg,const_int,mem")
++  (match_code "subreg,reg,const_int,const_double,mem")
+ {
+   if (register_operand (op, mode))
+     return 1;
+ 
++  if (op == CONST0_RTX (mode))
++    return 1;
++
+   if (GET_CODE (op) == CONST_INT)
+     return cint_ok_for_move (INTVAL (op));
+ 
+Index: gcc/config/pa/pa.md
+===================================================================
+--- gcc/config/pa/pa.md	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/config/pa/pa.md	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -2290,9 +2290,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:SI 0 "move_dest_operand"
+-			  "=r,r,r,r,r,r,Q,!*q,!r,!*f,*f,T,!r,!f")
++			  "=r,r,r,r,r,r,Q,!*q,!r,!*f,*f,T,?r,?*f")
+ 	(match_operand:SI 1 "move_src_operand"
+-			  "A,r,J,N,K,RQ,rM,!rM,!*q,!*fM,RT,*f,!f,!r"))]
++			  "A,r,J,N,K,RQ,rM,!rM,!*q,!*fM,RT,*f,*f,r"))]
+   "(register_operand (operands[0], SImode)
+     || reg_or_0_operand (operands[1], SImode))
+    && !TARGET_SOFT_FLOAT
+@@ -2932,9 +2932,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:HI 0 "move_dest_operand"
+-	 		  "=r,r,r,r,r,Q,!*q,!r,!*f,!r,!f")
++	 		  "=r,r,r,r,r,Q,!*q,!r,!*f,?r,?*f")
+ 	(match_operand:HI 1 "move_src_operand"
+-			  "r,J,N,K,RQ,rM,!rM,!*q,!*fM,!f,!r"))]
++			  "r,J,N,K,RQ,rM,!rM,!*q,!*fM,*f,r"))]
+   "(register_operand (operands[0], HImode)
+     || reg_or_0_operand (operands[1], HImode))
+    && !TARGET_SOFT_FLOAT
+@@ -3105,9 +3105,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:QI 0 "move_dest_operand"
+-			  "=r,r,r,r,r,Q,!*q,!r,!*f,!r,!f")
++			  "=r,r,r,r,r,Q,!*q,!r,!*f,?r,?*f")
+ 	(match_operand:QI 1 "move_src_operand"
+-			  "r,J,N,K,RQ,rM,!rM,!*q,!*fM,!f,!r"))]
++			  "r,J,N,K,RQ,rM,!rM,!*q,!*fM,*f,r"))]
+   "(register_operand (operands[0], QImode)
+     || reg_or_0_operand (operands[1], QImode))
+    && !TARGET_SOFT_FLOAT
+@@ -3907,9 +3907,21 @@
+   ""
+   "
+ {
+-  if (GET_CODE (operands[1]) == CONST_DOUBLE && TARGET_64BIT)
+-    operands[1] = force_const_mem (DFmode, operands[1]);
++  if (GET_CODE (operands[1]) == CONST_DOUBLE
++      && operands[1] != CONST0_RTX (DFmode))
++    {
++      /* Reject CONST_DOUBLE loads to all hard registers when
++	 generating 64-bit code and to floating point registers
++	 when generating 32-bit code.  */
++      if (REG_P (operands[0])
++	  && HARD_REGISTER_P (operands[0])
++	  && (TARGET_64BIT || REGNO (operands[0]) >= 32))
++	FAIL;
+ 
++      if (TARGET_64BIT)
++	operands[1] = force_const_mem (DFmode, operands[1]);
++    }
++
+   if (emit_move_sequence (operands, DFmode, 0))
+     DONE;
+ }")
+@@ -3949,9 +3961,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:DF 0 "move_dest_operand"
+-			  "=f,*r,Q,?o,?Q,f,*r,*r,!r,!f")
++			  "=f,*r,Q,?o,?Q,f,*r,*r,?*r,?f")
+ 	(match_operand:DF 1 "reg_or_0_or_nonsymb_mem_operand"
+-			  "fG,*rG,f,*r,*r,RQ,o,RQ,!f,!r"))]
++			  "fG,*rG,f,*r,*r,RQ,o,RQ,f,*r"))]
+   "(register_operand (operands[0], DFmode)
+     || reg_or_0_operand (operands[1], DFmode))
+    && !(GET_CODE (operands[1]) == CONST_DOUBLE
+@@ -4123,9 +4135,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:DF 0 "move_dest_operand"
+-			  "=r,?o,?Q,r,r,!r,!f")
++			  "=r,?o,?Q,r,r")
+ 	(match_operand:DF 1 "reg_or_0_or_nonsymb_mem_operand"
+-			  "rG,r,r,o,RQ,!f,!r"))]
++			  "rG,r,r,o,RQ"))]
+   "(register_operand (operands[0], DFmode)
+     || reg_or_0_operand (operands[1], DFmode))
+    && !TARGET_64BIT
+@@ -4134,14 +4146,14 @@
+ {
+   return output_move_double (operands);
+ }"
+-  [(set_attr "type" "move,store,store,load,load,move,move")
+-   (set_attr "length" "8,8,16,8,16,12,12")])
++  [(set_attr "type" "move,store,store,load,load")
++   (set_attr "length" "8,8,16,8,16")])
+ 
+ (define_insn ""
+   [(set (match_operand:DF 0 "move_dest_operand"
+ 			  "=!*r,*r,*r,*r,*r,Q,f,f,T")
+ 	(match_operand:DF 1 "move_src_operand"
+-			  "!*r,J,N,K,RQ,*rM,fM,RT,f"))]
++			  "!*r,J,N,K,RQ,*rG,fG,RT,f"))]
+   "(register_operand (operands[0], DFmode)
+     || reg_or_0_operand (operands[1], DFmode))
+    && !TARGET_SOFT_FLOAT && TARGET_64BIT"
+@@ -4255,9 +4267,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:DI 0 "move_dest_operand"
+-			  "=r,o,Q,r,r,r,*f,*f,T,!r,!f")
++			  "=r,o,Q,r,r,r,*f,*f,T,?r,?*f")
+ 	(match_operand:DI 1 "general_operand"
+-			  "rM,r,r,o*R,Q,i,*fM,RT,*f,!f,!r"))]
++			  "rM,r,r,o*R,Q,i,*fM,RT,*f,*f,r"))]
+   "(register_operand (operands[0], DImode)
+     || reg_or_0_operand (operands[1], DImode))
+    && !TARGET_64BIT
+@@ -4447,6 +4459,14 @@
+   ""
+   "
+ {
++  /* Reject CONST_DOUBLE loads to floating point registers.  */
++  if (GET_CODE (operands[1]) == CONST_DOUBLE
++      && operands[1] != CONST0_RTX (SFmode)
++      && REG_P (operands[0])
++      && HARD_REGISTER_P (operands[0])
++      && REGNO (operands[0]) >= 32)
++    FAIL;
++
+   if (emit_move_sequence (operands, SFmode, 0))
+     DONE;
+ }")
+@@ -4486,9 +4506,9 @@
+ 
+ (define_insn ""
+   [(set (match_operand:SF 0 "move_dest_operand"
+-			  "=f,!*r,f,*r,Q,Q,!r,!f")
++			  "=f,!*r,f,*r,Q,Q,?*r,?f")
+ 	(match_operand:SF 1 "reg_or_0_or_nonsymb_mem_operand"
+-			  "fG,!*rG,RQ,RQ,f,*rG,!f,!r"))]
++			  "fG,!*rG,RQ,RQ,f,*rG,f,*r"))]
+   "(register_operand (operands[0], SFmode)
+     || reg_or_0_operand (operands[1], SFmode))
+    && !TARGET_SOFT_FLOAT
+@@ -9573,7 +9593,7 @@
+   [(set (match_operand:SI 0 "register_operand" "=r")
+ 	(unspec:SI [(const_int 0)] UNSPEC_TP))]
+   ""
+-  "{mfctl|mfctl,w} %%cr27,%0"
++  "mfctl %%cr27,%0"
+   [(set_attr "type" "multi")
+    (set_attr "length" "4")])
+ 
+Index: gcc/config/xtensa/xtensa.c
+===================================================================
+--- gcc/config/xtensa/xtensa.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/config/xtensa/xtensa.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -528,6 +528,8 @@
+ int
+ constantpool_mem_p (rtx op)
+ {
++  if (GET_CODE (op) == SUBREG)
++    op = SUBREG_REG (op);
+   if (GET_CODE (op) == MEM)
+     return constantpool_address_p (XEXP (op, 0));
+   return FALSE;
+Index: gcc/params.def
+===================================================================
+--- gcc/params.def	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/params.def	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -560,6 +560,12 @@
+           "max-fields-for-field-sensitive",
+ 	  "Maximum number of fields in a structure before pointer analysis treats the structure as a single variable",
+ 	  100, 0, 0)
++
++DEFPARAM(PARAM_MAX_SCHED_READY_INSNS,
++	 "max-sched-ready-insns",
++	 "The maximum number of instructions ready to be issued to be considered by the scheduler during the first scheduling pass",
++	 100, 0, 0)
++
+ /*
+ Local variables:
+ mode:c
+Index: gcc/reload1.c
+===================================================================
+--- gcc/reload1.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/reload1.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,6 +1,7 @@
+ /* Reload pseudo regs into hard regs for insns that require hard regs.
+    Copyright (C) 1987, 1988, 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
+-   1999, 2000, 2001, 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
++   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007
++   Free Software Foundation, Inc.
+ 
+ This file is part of GCC.
+ 
+@@ -3054,6 +3055,7 @@
+ 	  {
+ 	    rtx to_rtx = ep->to_rtx;
+ 	    offset += ep->offset;
++	    offset = trunc_int_for_mode (offset, GET_MODE (reg));
+ 
+ 	    if (GET_CODE (XEXP (plus_cst_src, 0)) == SUBREG)
+ 	      to_rtx = gen_lowpart (GET_MODE (XEXP (plus_cst_src, 0)),
+Index: libstdc++-v3/ChangeLog
+===================================================================
+--- libstdc++-v3/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ libstdc++-v3/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,8 @@
++2007-02-21  Mark Mitchell  <mark@codesourcery.com>
++
++	* testsuite/lib/libstdc++.exp (libstdc++_init): Compile testglue
++	with -fexceptions.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+Index: libstdc++-v3/testsuite/lib/libstdc++.exp
+===================================================================
+--- libstdc++-v3/testsuite/lib/libstdc++.exp	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ libstdc++-v3/testsuite/lib/libstdc++.exp	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -223,7 +223,7 @@
+ 	v3track PCH_CXXFLAGS 2
+     }
+ 
+-    libstdc++_maybe_build_wrapper "${objdir}/testglue.o"
++    libstdc++_maybe_build_wrapper "${objdir}/testglue.o" "-fexceptions"
+ }
+ 
+ # Callback for cleanup routines.
+Index: ltconfig
+===================================================================
+--- ltconfig	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ ltconfig	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1133,7 +1133,7 @@
+   ;;
+ 
+ freebsd*)
+-  objformat=`test -x /usr/bin/objformat && /usr/bin/objformat || echo aout`
++  objformat=`test -x /usr/bin/objformat && /usr/bin/objformat || echo elf`
+   version_type=freebsd-$objformat
+   case $version_type in
+     freebsd-elf*)
+Index: libgfortran/ChangeLog
+===================================================================
+--- libgfortran/ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ libgfortran/ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,14 @@
++2007-02-24  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	PR libgfortran/30918
++	* io/listread.c (namelist_read): Eat comment line.
++
++2007-02-23  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	PR libgfortran/30910
++	* io/write.c (output_float): Add condition of format F only for
++	special case rounding with zero precision.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.
+Index: libgfortran/io/list_read.c
+===================================================================
+--- libgfortran/io/list_read.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ libgfortran/io/list_read.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -2567,6 +2567,10 @@
+     case '&':
+           break;
+ 
++    case '!':
++      eat_line (dtp);
++      goto find_nml_name;
++
+     case '=':
+       c = next_char (dtp);
+       if (c == '?')
+Index: libgfortran/io/write.c
+===================================================================
+--- libgfortran/io/write.c	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ libgfortran/io/write.c	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -426,6 +426,15 @@
+   if (value < 0)
+     value = -value;
+ 
++  /* Special case when format specifies no digits after the decimal point.  */
++  if (d == 0 && ft == FMT_F)
++    {
++      if (value < 0.5)
++	value = 0.0;
++      else if (value < 1.0)
++	value = value + 0.5;
++    }
++
+   /* Printf always prints at least two exponent digits.  */
+   if (value == 0)
+     edigits = 2;
+Index: ChangeLog
+===================================================================
+--- ChangeLog	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ ChangeLog	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -1,3 +1,7 @@
++2007-02-16  Gerald Pfeifer  <gerald@pfeifer.com>
++
++	* ltconfig (freebsd*): Default to elf.
++
+ 2007-02-13  Release Manager
+ 
+ 	* GCC 4.1.2 released.

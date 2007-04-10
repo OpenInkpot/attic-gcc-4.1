@@ -44,20 +44,6 @@ diff -urN tmp/gcc/config/rs6000/t-linux64 src/gcc/config/rs6000/t-linux64
  
  # We want fine grained libraries, so use the new code to build the
  # floating point emulation libraries.
-@@ -37,8 +34,11 @@
- mklibgcc: bispecs
- 
- bispecs: specs
--	if [ x`$(GCC_FOR_TARGET) -print-multi-os-directory` = x../lib ]; then \
-+	touch f-test.c; \
-+	$(GCC_FOR_TARGET) -c f-test.c -o f-test.o; \
-+	if [ "x`file f-test.o | grep 64-bit`" = "x" ]; then \
- 	  sed -e '/cc1_options/{ n; s/$$/ %{m64:-mlong-double-128}/; }' < specs > $@; \
- 	else \
- 	  sed -e '/cc1_options/{ n; s/$$/ %{!m32:-mlong-double-128}/; }' < specs > $@; \
--	fi
-+	fi; \
-+	rm f-test.c f-test.o;
 diff -urN tmp/libjava/configure.host src/libjava/configure.host
 --- tmp/libjava/configure.host	25 Nov 2004 03:46:56 -0000
 +++ src/libjava/configure.host	15 Dec 2004 15:45:22 -0000
@@ -79,7 +65,7 @@ diff -urN tmp/libjava/configure.host src/libjava/configure.host
 diff -urN tmp/config-ml.in src/config-ml.in
 --- tmp/config-ml.in	2004-11-09 08:07:29.000000000 +0000
 +++ src/config-ml.in	2004-12-12 07:12:44.631147816 +0000
-@@ -400,7 +400,47 @@
+@@ -400,7 +400,49 @@
  	  ;;
  	esac
  	;;
@@ -100,6 +86,8 @@ diff -urN tmp/config-ml.in src/config-ml.in
 + 	     *32* ) case ${ml_realsrcdir} in
 + 	               *"libstdc++-v3" ) multidirs="${multidirs} ${x}" ;;
 + 	               *"libgfortran" ) multidirs="${multidirs} ${x}" ;;
++ 	               *"libffi" ) multidirs="${multidirs} ${x}" ;;
++ 	               *"libssp" ) multidirs="${multidirs} ${x}" ;;
 + 	               *"libobjc" ) multidirs="${multidirs} ${x}" ;;
 + 	               *"libiberty" ) multidirs="${multidirs} ${x}" ;;
 + 	               *"zlib" ) multidirs="${multidirs} ${x}" ;;

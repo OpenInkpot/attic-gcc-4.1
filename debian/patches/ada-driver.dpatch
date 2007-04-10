@@ -28,10 +28,11 @@ exit 0
 
 --- gcc/aclocal.m4~	Sat Mar  2 00:37:42 2002
 +++ gcc/aclocal.m4	Sat Apr  6 13:01:36 2002
-@@ -312,6 +312,9 @@
+@@ -312,6 +312,10 @@
  	    ${ac_tool_prefix}$user_cc	$user_cc	\
  	    ${ac_tool_prefix}gcc	gcc		\
  	    ${ac_tool_prefix}cc		cc		\
++	    ${ac_tool_prefix}gcc-4.1	gcc-4.1		\
 +	    ${ac_tool_prefix}gcc-4.0	gcc-4.0		\
 +	    ${ac_tool_prefix}gcc-3.4	gcc-3.4		\
 +	    ${ac_tool_prefix}gcc-3.3	gcc-3.3		\

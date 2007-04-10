@@ -27,9 +27,9 @@ esac
 
 exit 0
 
---- gcc/config/sparc/linux64.h.orig	2005-08-07 07:24:56.000000000 +0000
-+++ gcc/config/sparc/linux64.h	2005-10-17 09:45:29.083849140 +0000
-@@ -56,8 +56,8 @@
+--- gcc/config/sparc/linux64.h.orig	2006-10-27 18:02:21.000000000 +0200
++++ gcc/config/sparc/linux64.h	2006-10-27 18:21:13.000000000 +0200
+@@ -58,8 +58,8 @@
     + MASK_STACK_BIAS + MASK_APP_REGS + MASK_FPU + MASK_LONG_DOUBLE_128)
  #endif
  
@@ -38,20 +38,10 @@ exit 0
 +#undef ASM_CPU64_DEFAULT_SPEC
 +#define ASM_CPU64_DEFAULT_SPEC "-Av9a"
  
- #ifdef SPARC_BI_ARCH
- 
---- libcpp/configure.ac.orig	2005-10-09 00:21:46.000000000 +0000
-+++ libcpp/configure.ac	2005-10-17 09:45:29.090849847 +0000
-@@ -124,6 +124,7 @@
- 	powerpc*-*-* | \
- 	rs6000*-*-* | \
- 	s390*-*-* | \
-+	sparc-*-linux* | \
- 	sparc64*-*-* | ultrasparc-*-freebsd* | \
- 	sparcv9-*-solaris2* | \
- 	sparc-*-solaris2.[789] | sparc-*-solaris2.1[0-9]* | \
---- gcc/config.gcc.orig	2005-10-17 09:55:18.914725990 +0000
-+++ gcc/config.gcc	2005-10-17 09:55:28.274676504 +0000
+ /* Provide a STARTFILE_SPEC appropriate for GNU/Linux.  Here we add
+    the GNU/Linux magical crtbegin.o file (see crtstuff.c) which
+--- gcc/config.gcc.orig	2006-10-27 18:02:35.000000000 +0200
++++ gcc/config.gcc	2006-10-27 18:29:49.000000000 +0200
 @@ -310,6 +310,7 @@
  	;;
  sparc*-*-*)
@@ -60,7 +50,7 @@ exit 0
  	;;
  s390*-*-*)
  	cpu_type=s390
-@@ -2038,9 +2039,16 @@
+@@ -2070,9 +2071,16 @@
  	use_fixproto=yes
  	;;
  sparc-*-linux*)		# SPARC's running GNU/Linux, libc6
@@ -68,12 +58,22 @@ exit 0
 +	if test x$with_cpu = x; then
  	tm_file="${tm_file} dbxelf.h elfos.h svr4.h sparc/sysv4.h sparc/linux.h"
  	extra_options="${extra_options} sparc/long-double-switch.opt"
- 	tmake_file="${tmake_file} sparc/t-crtfm"
+ 	tmake_file="${tmake_file} sparc/t-linux sparc/t-crtfm"
 +	else
 +	  tm_file="sparc/biarch64.h ${tm_file} dbxelf.h elfos.h svr4.h sparc/sysv4.h sparc/linux64.h"
 +	  extra_options="${extra_options} sparc/long-double-switch.opt"
-+	  tmake_file="${tmake_file} sparc/t-linux64 sparc/t-crtfm"
++	  tmake_file="${tmake_file} sparc/t-linux sparc/t-linux64 sparc/t-crtfm"
 +	fi
  	;;
  sparc-*-rtems*)
  	tm_file="${tm_file} dbxelf.h elfos.h svr4.h sparc/sysv4.h sparc/sp-elf.h sparc/rtemself.h rtems.h"
+--- libcpp/configure.ac.orig	2006-10-27 18:02:30.000000000 +0200
++++ libcpp/configure.ac	2006-10-27 18:21:13.000000000 +0200
+@@ -125,6 +125,7 @@
+ 	powerpc*-*-* | \
+ 	rs6000*-*-* | \
+ 	s390*-*-* | \
++	sparc-*-linux* | \
+ 	sparc64*-*-* | ultrasparc-*-freebsd* | \
+ 	sparcv9-*-solaris2* | \
+ 	sparc-*-solaris2.[789] | sparc-*-solaris2.1[0-9]* | \

@@ -7,8 +7,7 @@ if [ -n "$DEB_VERSION" ]; then
     pkgversion=" $DEB_VERSION"
 fi
 
-dist=Debian
-dist=$(lsb_release -is)
+dist=Slind
 
 dir=gcc
 if [ $# -eq 3 -a "$2" = '-d' ]; then

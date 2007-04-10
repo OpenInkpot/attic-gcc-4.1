@@ -217,19 +217,19 @@ $(binary_stamp)-libstdcxx-dev: $(install_stamp) \
 
 	rm -rf $(d_dev) $(d_pic)
 	dh_installdirs -p$(p_dev) $(dirs_dev)
-	dh_installdirs -p$(p_pic) $(dirs_pic)
-	dh_installdirs -p$(p_dbg) $(dirs_dbg)
+	#dh_installdirs -p$(p_pic) $(dirs_pic)
+	#dh_installdirs -p$(p_dbg) $(dirs_dbg)
 
 	: # - correct libstdc++-v3 file locations
 ifdef GCC_LIBC_TARGET
 	mv $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/libsupc++.a $(d)/$(gcc_lib_dir)/
 	mv $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/libstdc++.{a,so} $(d)/$(gcc_lib_dir)/
 	ln -sf ../../../../$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/libstdc++.so.$(CXX_SONAME) $(d)/$(gcc_lib_dir)/libstdc++.so
-	mv $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/libstdc++_pic.a \
-		$(d)/$(gcc_lib_dir)/
+	#mv $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/libstdc++_pic.a \
+	#	$(d)/$(gcc_lib_dir)/
 
-	rm -f $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/debug/libstdc++_pic.a
-	rm -f $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib64/debug/libstdc++_pic.a
+	#rm -f $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib/debug/libstdc++_pic.a
+	#rm -f $(d)/$(PF)/$(subst -gnu,-$(GCC_LIBC_TARGET),$(DEB_TARGET_GNU_TYPE))/lib64/debug/libstdc++_pic.a
 
 	: # remove precompiled headers
 	-find $(d) -type d -name '*.gch' | xargs rm -rf
@@ -243,11 +243,11 @@ else
 	mv $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib/libsupc++.a $(d)/$(gcc_lib_dir)/
 	mv $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib/libstdc++.{a,so} $(d)/$(gcc_lib_dir)/
 	ln -sf ../../../../$(DEB_TARGET_GNU_TYPE)/lib/libstdc++.so.$(CXX_SONAME) $(d)/$(gcc_lib_dir)/libstdc++.so
-	mv $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib/libstdc++_pic.a \
-		$(d)/$(gcc_lib_dir)/
+	#mv $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib/libstdc++_pic.a \
+	#	$(d)/$(gcc_lib_dir)/
 
-	rm -f $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib/debug/libstdc++_pic.a
-	rm -f $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib64/debug/libstdc++_pic.a
+	#rm -f $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib/debug/libstdc++_pic.a
+	#rm -f $(d)/$(PF)/$(DEB_TARGET_GNU_TYPE)/lib64/debug/libstdc++_pic.a
 
 	: # remove precompiled headers
 	-find $(d) -type d -name '*.gch' | xargs rm -rf
@@ -260,31 +260,37 @@ ifeq ($(with_lib64cxx),yes)
 endif
 
 	DH_COMPAT=2 dh_movefiles -p$(p_dev) $(files_dev)
-	DH_COMPAT=2 dh_movefiles -p$(p_pic) $(files_pic)
-	DH_COMPAT=2 dh_movefiles -p$(p_dbg) $(files_dbg)
+	#DH_COMPAT=2 dh_movefiles -p$(p_pic) $(files_pic)
+	#DH_COMPAT=2 dh_movefiles -p$(p_dbg) $(files_dbg)
 
 	debian/dh_doclink -p$(p_dev) $(p_lib)
-	debian/dh_doclink -p$(p_pic) $(p_lib)
-	debian/dh_doclink -p$(p_dbg) $(p_lib)
-	cp -p $(srcdir)/libstdc++-v3/ChangeLog \
-		$(d_dev)/usr/share/doc/$(p_lib)/changelog
-	cp -p $(srcdir)/libstdc++-v3/config/linker-map.gnu \
-		$(d_pic)/$(gcc_lib_dir)/libstdc++_pic.map
+	#debian/dh_doclink -p$(p_pic) $(p_lib)
+	#debian/dh_doclink -p$(p_dbg) $(p_lib)
+	#cp -p $(srcdir)/libstdc++-v3/ChangeLog \
+	#	$(d_dev)/usr/share/doc/$(p_lib)/changelog
+	#cp -p $(srcdir)/libstdc++-v3/config/linker-map.gnu \
+	#	$(d_pic)/$(gcc_lib_dir)/libstdc++_pic.map
 
 ifeq ($(with_cxxdev),yes)
 	debian/dh_rmemptydirs -p$(p_dev)
-	debian/dh_rmemptydirs -p$(p_pic)
-	debian/dh_rmemptydirs -p$(p_dbg)
+	#debian/dh_rmemptydirs -p$(p_pic)
+	#debian/dh_rmemptydirs -p$(p_dbg)
 endif
 
-	PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_dev) -p$(p_pic)
-	dh_compress -p$(p_dev) -p$(p_pic) -p$(p_dbg) -X.txt
-	dh_fixperms -p$(p_dev) -p$(p_pic) -p$(p_dbg)
-	dh_gencontrol -p$(p_dev) -p$(p_pic) -p$(p_dbg) \
+	#PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_dev) -p$(p_pic)
+	dh_compress -p$(p_dev) -X.txt
+	# -p$(p_pic) -p$(p_dbg) -X.txt
+	dh_fixperms -p$(p_dev)
+	# -p$(p_pic) -p$(p_dbg)
+	# -p$(p_pic) -p$(p_dbg) 
+	dh_gencontrol -p$(p_dev) \
 		-u-v$(DEB_VERSION)
 	
-	dh_installdeb -p$(p_dev) -p$(p_pic) -p$(p_dbg)
-	dh_md5sums -p$(p_dev) -p$(p_pic) -p$(p_dbg)
-	dh_builddeb -p$(p_dev) -p$(p_pic) -p$(p_dbg)
+	dh_installdeb -p$(p_dev)
+	# -p$(p_pic) -p$(p_dbg)
+	dh_md5sums -p$(p_dev)
+	# -p$(p_pic) -p$(p_dbg)
+	dh_builddeb -p$(p_dev)
+	# -p$(p_pic) -p$(p_dbg)
 
 	trap '' 1 2 3 15; touch $@; mv $(install_stamp)-tmp $(install_stamp)

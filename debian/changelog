@@ -1,3 +1,15 @@
+gcc-4.1 (4.1.2-1) unstable; urgency=low
+
+  * Merged 4.1.2 from debian.
+
+ -- Alexander Shishkin <virtuoso@slind.org>  Wed,  4 Apr 2007 17:35:03 +0400
+
+gcc-4.1 (4.1.1-1) unstable; urgency=low
+
+  * Merged gcc 4.1.1 from debian.
+
+ -- Alexander Shishkin <alexander.shishkin@siemens.com>  Tue,  6 Feb 2007 13:53:45 +0300
+
 gcc-4.1 (4.1.0-slind0) unstable; urgency=low
 
   * New upstream release.

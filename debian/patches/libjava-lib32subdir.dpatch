@@ -1,0 +1,93 @@
+#! /bin/sh -e
+
+# DP: - When running the i386 binaries on amd64, look in /usr/lib32/gcj-x_y
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- libjava/prims.cc.orig	2007-01-18 20:12:18.000000000 +0100
++++ libjava/prims.cc	2007-01-19 01:10:44.000000000 +0100
+@@ -21,6 +21,10 @@
+ #include <unistd.h>
+ #endif
+ 
++#ifdef HAVE_UNAME
++#include <sys/utsname.h>
++#endif
++
+ #include <gcj/cni.h>
+ #include <jvm.h>
+ #include <java-signal.h>
+@@ -1806,12 +1810,28 @@
+ _Jv_PrependVersionedLibdir (char* libpath)
+ {
+   char* retval = 0;
++#define GCJ_VERSIONED_SUBDIR "gcj-4.1-71"
++#define GCJ_VERSIONED_LIB32DIR "/usr/lib32/" GCJ_VERSIONED_SUBDIR
++  const char* vlibdir = GCJ_VERSIONED_LIBDIR;
++  int vlibdir_size = sizeof (GCJ_VERSIONED_LIBDIR);
++
++#if defined(__linux__) && defined (__i386__)
++  struct utsname u;
++  if (! uname (&u))
++    {
++      if (! strcmp ("x86_64", u.machine))
++	{
++	  vlibdir = GCJ_VERSIONED_LIB32DIR;
++	  vlibdir_size = sizeof (GCJ_VERSIONED_LIB32DIR);
++	}
++    }
++#endif
+ 
+   if (libpath && libpath[0] != '\0')
+     {
+       if (! strncmp (libpath,
+-                     GCJ_VERSIONED_LIBDIR,
+-                     sizeof (GCJ_VERSIONED_LIBDIR) - 1))
++                     vlibdir,
++                     vlibdir_size - 1))
+         {
+           // LD_LIBRARY_PATH is already prefixed with
+           // GCJ_VERSIONED_LIBDIR.
+@@ -1825,10 +1845,10 @@
+ 	  char path_sep[2];
+ 	  path_sep[0] = (char) _Jv_platform_path_separator;
+ 	  path_sep[1] = '\0';
+-          jsize total = ((sizeof (GCJ_VERSIONED_LIBDIR) - 1)
++          jsize total = ((vlibdir_size - 1)
+ 			 + 1 /* path separator */ + strlen (libpath) + 1);
+           retval = (char*) _Jv_Malloc (total);
+-          strcpy (retval, GCJ_VERSIONED_LIBDIR);
++          strcpy (retval, vlibdir);
+           strcat (retval, path_sep);
+           strcat (retval, libpath);
+         }
+@@ -1836,8 +1856,8 @@
+   else
+     {
+       // LD_LIBRARY_PATH was not specified or is empty.
+-      retval = (char*) _Jv_Malloc (sizeof (GCJ_VERSIONED_LIBDIR));
+-      strcpy (retval, GCJ_VERSIONED_LIBDIR);
++      retval = (char*) _Jv_Malloc (vlibdir_size);
++      strcpy (retval, vlibdir);
+     }
+ 
+   return retval;

@@ -1,6 +1,6 @@
 #! /bin/sh -e
 
-# DP: Add Debian URL for bug reporting isntructions.
+# DP: Add Debian URL for bug reporting instructions.
 
 dir=
 if [ $# -eq 3 -a "$2" = '-d' ]; then
@@ -30,31 +30,9 @@ case "$1" in
 esac
 exit 0
 
---- gcc/java/gjavah.c.orig	2005-09-05 00:22:28.368267856 +0000
-+++ gcc/java/gjavah.c	2005-09-05 00:22:44.643793600 +0000
-@@ -2390,6 +2390,8 @@
-   printf ("\n");
-   printf (_("For bug reporting instructions, please see:\n"
- 	    "%s.\n"), bug_report_url);
-+  printf (_("For Debian GNU/Linux specific bug reporting instructions, please see:\n"
-+	    "%s.\n"), debian_bug_report_url);
-   exit (0);
- }
- 
 --- gcc/java/jcf-dump.c.orig	2005-09-05 00:22:28.368267856 +0000
 +++ gcc/java/jcf-dump.c	2005-09-05 00:22:44.643793600 +0000
 @@ -921,6 +921,8 @@
-   printf ("\n");
-   printf (_("For bug reporting instructions, please see:\n"
- 	    "%s.\n"), bug_report_url);
-+  printf (_("For Debian GNU/Linux specific bug reporting instructions, please see:\n"
-+	    "%s.\n"), debian_bug_report_url);
-   exit (0);
- }
- 
---- gcc/java/jv-scan.c.orig	2005-09-05 00:22:28.371267400 +0000
-+++ gcc/java/jv-scan.c	2005-09-05 00:22:44.644793448 +0000
-@@ -119,6 +119,8 @@
    printf ("\n");
    printf (_("For bug reporting instructions, please see:\n"
  	    "%s.\n"), bug_report_url);

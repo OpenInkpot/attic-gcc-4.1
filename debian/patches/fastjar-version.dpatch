@@ -30,7 +30,7 @@ exit 0
  AC_PREREQ(2.57)
  AC_INIT(jartool.h)
 -AM_INIT_AUTOMAKE(fastjar, 0.92-gcc)
-+AM_INIT_AUTOMAKE(fastjar, 0.92-gcc-4.0)
++AM_INIT_AUTOMAKE(fastjar, 0.92-gcc-4.1)
  AM_CONFIG_HEADER(config.h)
  
  dnl Checks for programs.
@@ -41,7 +41,7 @@ exit 0
  # Define the identity of the package.
   PACKAGE=fastjar
 - VERSION=0.92-gcc
-+ VERSION=0.92-gcc-4.0
++ VERSION=0.92-gcc-4.1
  
  
  cat >>confdefs.h <<_ACEOF

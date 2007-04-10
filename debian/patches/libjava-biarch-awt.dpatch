@@ -12,11 +12,13 @@ elif [ $# -ne 1 ]; then
 fi
 case "$1" in
     -patch)
-        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
 	cd ${dir}libjava && autoconf
+	cd - >/dev/null
+	cd ${dir}libjava/classpath && autoconf
         ;;
     -unpatch)
-        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
         ;;
     *)
         echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
@@ -24,9 +26,9 @@ case "$1" in
 esac
 exit 0
 
---- src/libjava/configure.ac.orig	2005-11-21 20:34:51.801610904 +0000
-+++ src/libjava/configure.ac	2005-11-21 20:40:42.297327456 +0000
-@@ -175,6 +175,23 @@
+--- libjava/configure.ac.orig	2006-08-19 21:29:33.603803000 +0200
++++ libjava/configure.ac	2006-08-19 21:36:07.803803000 +0200
+@@ -200,6 +200,23 @@
  
  for peer in $peerlibs ; do
    case $peer in
@@ -50,7 +52,7 @@ exit 0
      xlib)
        if test "$no_x" = yes; then
          echo "*** xlib peers requested but no X library available" 1>&2
-@@ -273,7 +290,11 @@
+@@ -290,13 +307,21 @@
  else
    # We are being configured with a native or crossed-native compiler
    if test -x "${built_gcc_dir}/gcj${ac_exeext}"; then
@@ -63,13 +65,40 @@ exit 0
          # True native build (host=target and host=build)
          which_gcj=built
       else
-@@ -1152,9 +1173,7 @@
+         # Crossed-native build (host=target and host!=build)
+         which_gcj=cross
+      fi
++     # Debian ...
++     case "$with_multisubdir" in
++       *-linux-gnu) which_gcj=built;;
++     esac
+   else
+      which_gcj=path
+   fi
+@@ -335,7 +360,12 @@
+ ac_configure_args="$ac_configure_args --enable-tool-wrappers"
+ ac_configure_args="$ac_configure_args --disable-load-library"
+ ac_configure_args="$ac_configure_args --${LIBGCJDEBUG}-debug"
+-ac_configure_args="$ac_configure_args --enable-default-toolkit=$TOOLKIT"
++if test -n "$with_multisubdir"; then
++  ac_configure_args="$ac_configure_args --enable-default-toolkit=$TOOLKIT --disable-gconf-peer"
++  use_gtk_awt=no
++  use_qt_awt=no
++  plugin_enabled=no
++fi
+ dir1=`cd $srcdir && pwd`
+ dir2=`pwd`
+ ac_configure_args="$ac_configure_args --with-vm-classes=$dir1:$dir2"
+@@ -1157,9 +1187,12 @@
        AC_SUBST(LIBART_LIBS)
  
        # We require the XTest Extension to support java.awt.Robot.
 -      AC_CHECK_LIB([Xtst], [XTestQueryExtension], [true],
--		   [AC_MSG_ERROR([libXtst not found, required by java.awt.Robot])],
--		   [${X_LIBS}])
++      if test -z "$with_multisubdir"; then
++	AC_CHECK_LIB([Xtst], [XTestQueryExtension], [true],
+ 		   [AC_MSG_ERROR([libXtst not found, required by java.awt.Robot])],
+ 		   [${X_LIBS}])
++      fi
 +      # Debian: guaranteed by the libxtst-dev build dependency
     fi
  

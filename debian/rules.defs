@@ -590,7 +590,7 @@ ifeq ($(DEB_TARGET_GNU_SYSTEM), $(findstring $(DEB_TARGET_GNU_SYSTEM),$(locale_n
   force_gnu_locales := disabled for $(DEB_TARGET_GNU_SYSTEM)
 endif
 
-gcc_srcdir		:= gcc-4.1.0
+gcc_srcdir		:= gcc-4.1.2
 gcc_tarball		:= $(gcc_srcdir).tar.bz2
 
 gpc_srcdir		:= gpc-20050331-minimal

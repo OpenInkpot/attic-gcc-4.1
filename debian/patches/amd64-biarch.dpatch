@@ -32,7 +32,7 @@ exit 0
  MULTILIB_OPTIONS = m64/m32
  MULTILIB_DIRNAMES = 64 32 
 -MULTILIB_OSDIRNAMES = ../lib64 ../lib
-+MULTILIB_OSDIRNAMES = ../lib64 ../lib32
++MULTILIB_OSDIRNAMES = ../lib ../lib32
  
  LIBGCC = stmp-multilib
  INSTALL_LIBGCC = install-multilib

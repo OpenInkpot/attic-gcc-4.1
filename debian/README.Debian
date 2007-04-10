@@ -65,28 +65,10 @@ Ludovic Brenta <ludovic.brenta@insalien.org>	(gnat)
 
 ===============================================================================
 
-Patches that Debian applied in this version:
+Patches that Slind applied in this version:
 
-pr26004:
-  PR middle-end/26004 (rejects-vaild-code, regression), gcc-4_1-branch
-
-pr26526:
-  Fix PR libstdc++/26526 (link failure when _GLIBCXX_DEBUG is defined).
-
-pr26557:
-  PR middle-end/26557 (ice-on-vaild-code, regression), gcc-4_1-branch
-
-pr26587:
-  Fix for PR tree-optimization/26587, taken from the 4.1 branch.
-
-pr26672:
-  PR tree-optimization/26672 (ice-on-vaild-code, regression), gcc-4_1-branch
-
-libjava-4.1.1:
-  libjava updates from gcc-4_1-branch until 20060318.
-
-libjava-update:
-  libjava awt & swing update, taken from trunk 2006-02-25
+svn-updates:
+  SVN updates from the 4.1 branch upto 20070306.
 
 gcc-version:
   Add package identification to the gcc version string
@@ -94,9 +76,17 @@ gcc-version:
 gcc-textdomain:
   Set gettext's domain and textdomain to the versioned package name.
 
-rename-info-files:
-  Allow transformations on info file names. Reference the
-  transformed info file names in the texinfo files.
+gcc-driver-extra-langs:
+  Add options and specs for languages that are not built from a source
+  (but built from separate sources).
+
+gcc-long-double:
+  Add --with{,out}-long-double-128 configure option.
+  Taken from http://gcc.gnu.org/bugzilla/show_bug.cgi?id=25864#c14
+
+libstdc++-long-double:
+  PR target/25864, libstdc++-v3 parts.
+  Taken from http://gcc.gnu.org/bugzilla/show_bug.cgi?id=25864#c13
 
 libstdc++-pic:
   Build and install libstdc++_pic.a library.
@@ -111,55 +101,180 @@ gccbug-posix:
   Make gccbug POSIX compliant (patch by David Weinehall)
   http://www.opengroup.org/onlinepubs/009695399/utilities/test.html
 
+boehm-gc-backport:
+  gcc/java / libjava backport / classpath-0.92
+
 boehm-gc-nocheck:
   Disable running the boehm-gc testsuite. Hangs the buildd at least on hppa.
 
 fastjar-version:
   Append GCC version to the fastjar version string.
 
+fastjar-doc:
+  fastjar.texi: Directly define the gcctabopt and gccoptlist macros.
+
 libstdc++-doxygen:
   libstdc++ doxygen docs: Set SHORT_NAMES to YES
 
-classmap-path:
-  Set the location for gcj-dbtool's database to /var/lib/gcj-X.Y
+gcc-expandv:
+  * gcc.c (main): Call expandargv.
 
-libjava-dlsearch-path:
-  Add /usr/lib/gcj-4.1 to the dlsearch path.
+libffi-configure:
+  Add --enable-libffi option to toplevel configure script
 
-libjava-stacktrace:
-  libgcj: Lookup source file name and line number in separated
-  debug files found in /usr/lib/debug
+libffi-backport:
+  libffi backport
 
-libjava-hppa:
-  2006-03-14  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
-  
-  	* pa/pa32-linux.h (CRT_CALL_STATIC_FUNCTION): Fix typo.
-  
-  2006-03-13  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
-  
-  	* pa/pa32-linux.h (CRT_CALL_STATIC_FUNCTION): Define when CRTSTUFFS_O
-  	is defined.
+libffi-backport2:
+  Add missing bits for the libffi backport from the trunk
+  - parisc chunks
+  - missing testcases in testsuite/libffi.call
+
+alpha-no-ev4-directive:
 
 arm-libffi:
   Add closure support to libffi for arm
 
+note-gnu-stack:
+  Add .note.GNU-stack sections for gcc's crt files, libffi and boehm-gc
+  Taken from FC.
+
 arm-gij:
   Enable gij interpreter on arm
+
+hppa-cbranch:
+  Fix for PR target/26743 (hppa)
+  Backport from gcc trunk 2006-04-12 by tausq@debian.org
+
+hppa-cbranch2:
+  Fix for PR target/26743 (hppa)
+  Backport from gcc trunk 2006-04-12 by tausq@debian.org
+
+m68k-fjump:
+  gcc/config/m68k/m68k.md:
+  always use as fjcc pseudo op, we rely heavily on as 
+  to generate the right size for the jump instructions
+  fixes #359281
+
+m68k-gc:
+  boehm-gc:
+  the thread suspend handler has to save all registers
+  reenable MPROTECT_VDB, it should work, otherwise it's probably a kernel bug
+  change STACKBOTTOM to LINUX_STACKBOTTOM so it works with 2.6 kernel
+
+m68k-save_pic:
+  gcc/config/m68k/m68k.c:
+  correctly save the pic register, when not done by reload()
+  (fixes _Unwind_RaiseException and thus exception handling)
+  fixes 345574
+
+m68k-libffi2:
+  add closure support to libffi for m68k
+
+m68k-dwarf:
+  correct the dwarf frame information, but preserve compatibility
+
+m68k-split_shift:
+  use correct predicates for long long shifts and use more splits
+  fixes 381572
+
+m68k-prevent-qipush:
+  prevent combine from creating a byte push on the stack (invalid on m68k)
+
+m68k-jumptable:
+  Don't force byte offset when accessing the jumptable, gas can
+  generate the correct offset size instead.
+
+m68k-peephole:
+  Convert some text peepholes to rtl peepholes, so the correct
+  DWARF2 information can be generated for stack manipulations.
+  (Keep a few peepholes temporarily disabled.)
+
+m68k-return:
+  don't use single return if fp register have to be restored
+  fixes 386864
+
+m68k-sig-unwind:
+  add support for unwinding over signal frames
+
+m68k-align-code:
+  use "move.l %a4,%a4" to advance within code.
+
+m68k-align-stack:
+  try to keep the stack word aligned
+
+m68k-dwarf3:
+  emit correct dwarf info for cfa offset and register with -fomit-frame-pointer
+
+m68k-fpcompare:
+  bring fp compare early to its desired form to relieve reload,
+  allow any fp constant during and after reload (even special constants)
+  in case reload can't find a free register for them.
+
+m68k-secondary-addr-reload:
+  add secondary reloads to allow reload to get byte values into addr regs
+
+m68k-notice-move:
+  don't set cc_status for fp move without fp register
+
+m68k-symbolic-operand:
+  better recognize symbolic operands in addresses
+
+m68k-bitfield-offset:
+  only use constant offset for register bitfields
+  (combine expects shifts, but does a rotate)
+
+pr25524:
+  Backport PR libstdc++/25524 from the trunk
+
+pr26885:
+  Proposed patch for PR driver/26885
+
+pr26864:
+  Backport fix for PR libmudflap/26864 from the trunk.
+
+pr27227:
+  Revert the patch to fix PR c++/27227.
+
+pr26208:
+  PR other/26208
+
+pr26208-r111674:
+  PR other/26208, fix arm pasto
+
+pr11953:
+  PR libstdc++/11953, extended for all supported linux architectures
+
+slind-hacks:
+  fix prototype clash with linux-kernel-headers version 2.6.18 in
+  psignal definition
+
+gcc-dwarf2-h:
+  gcc dwarf2.h header additions (r107384, r111620), taken from the trunk
+
+gcc-unwind-r111705:
+  gcc unwind r11705, taken from the trunk
+
+gcc-unwind-r120406:
+  gcc unwind r120406, taken from the trunk
+
+pr9861-nojava:
+  Non-java parts of PR java/9861 (java changes in gcj-ecj-generics.tar.bz2).
 
 cross-include:
   Set cross include path to .../include, not .../sys-include
   This should be a fix for famous limits.h issue
 
+cross-fixes:
+  Fix the linker error when creating an xcc for ia64
+
 link-libs:
 
 reporting:
-  Add Debian URL for bug reporting isntructions.
-
-cpu-default-i486:
-  set default 32bit ix86 architecture to i486
+  Add Debian URL for bug reporting instructions.
 
 reporting:
-  Add Debian URL for bug reporting isntructions.
+  Add Debian URL for bug reporting instructions.
 
 gcc-ice-hack:
   2004-01-23  Jakub Jelinek  <jakub@redhat.com>

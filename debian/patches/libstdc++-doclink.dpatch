@@ -32,7 +32,7 @@ exit 0
 -   or offline from docs/html/documentation.html in the library source
 -   directory.
 +   or offline from
-+   <a href="/usr/share/doc/gcc-3.4/libstdc++/html/documentation.html">/usr/share/doc/gcc-3.4/libstdc++/html/documentation.html</a>.
++   <a href="/usr/share/doc/gcc-4.1/libstdc++/html/documentation.html">/usr/share/doc/gcc-4.1/libstdc++/html/documentation.html</a>.
  </p>
  
  <p>The other type is the source documentation, of which this is the first page.

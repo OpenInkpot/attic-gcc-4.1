@@ -1,0 +1,57 @@
+#! /bin/sh -e
+
+# DP: - Work around configure breakage for the plugin
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+	cd ${dir}libjava/classpath && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+	rm -f ${dir}libjava/classpath/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- libjava/classpath/configure.ac~	2007-03-03 17:49:48.414705354 +0100
++++ libjava/classpath/configure.ac	2007-03-03 18:15:16.117750407 +0100
+@@ -607,20 +607,27 @@
+   dnl Check for plugin support headers and libraries.
+   if test "x${COMPILE_PLUGIN}" = xyes; then
+     PKG_CHECK_MODULES(MOZILLA, mozilla-plugin, [MOZILLA_FOUND=yes], [MOZILLA_FOUND=no])
++    PKG_CHECK_MODULES(MOZILLA_XPCOM, mozilla-xpcom, [MOZILLA_XPCOM_FOUND=yes], [MOZILLA_XPCOM_FOUND=no])
+     if test "x${MOZILLA_FOUND}" = xno; then
+       PKG_CHECK_MODULES(MOZILLA, firefox-plugin, [MOZILLA_FOUND=yes], [MOZILLA_FOUND=no])
++      PKG_CHECK_MODULES(MOZILLA_XPCOM, firefox-xpcom, [MOZILLA_XPCOM_FOUND=yes], [MOZILLA_XPCOM_FOUND=no])
+     fi
+     if test "x${MOZILLA_FOUND}" = xno; then
+       PKG_CHECK_MODULES(MOZILLA, xulrunner-plugin, [MOZILLA_FOUND=yes], [MOZILLA_FOUND=no])
++      PKG_CHECK_MODULES(MOZILLA_XPCOM, xulrunner-xpcom, [MOZILLA_XPCOM_FOUND=yes], [MOZILLA_XPCOM_FOUND=no])
+     fi
+     if test "x${MOZILLA_FOUND}" = xno; then
+       PKG_CHECK_MODULES(MOZILLA, mozilla-firefox-plugin, [MOZILLA_FOUND=yes], [MOZILLA_FOUND=no])
++      PKG_CHECK_MODULES(MOZILLA_XPCOM, mozilla-firefox-xpcom, [MOZILLA_XPCOM_FOUND=yes], [MOZILLA_XPCOM_FOUND=no])
+     fi
+     if test "x${MOZILLA_FOUND}" = xno; then
+       PKG_CHECK_MODULES(MOZILLA, seamonkey-plugin, [MOZILLA_FOUND=yes], [MOZILLA_FOUND=no])
++      PKG_CHECK_MODULES(MOZILLA_XPCOM, seamonkey-xpcom, [MOZILLA_XPCOM_FOUND=yes], [MOZILLA_XPCOM_FOUND=no])
+     fi
+     PKG_CHECK_MODULES(GLIB, glib-2.0)
+ 
++    MOZILLA_CFLAGS="$MOZILLA_CFLAGS $MOZILLA_XPCOM_CFLAGS"
++    MOZILLA_LIBS="$MOZILLA_LIBS $MOZILLA_XPCOM_LIBS"
+     AC_SUBST(MOZILLA_CFLAGS)
+     AC_SUBST(MOZILLA_LIBS)
+     AC_SUBST(GLIB_CFLAGS)

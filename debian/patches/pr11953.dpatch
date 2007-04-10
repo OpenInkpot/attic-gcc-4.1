@@ -1,0 +1,57 @@
+#! /bin/sh -e
+
+# DP: PR libstdc++/11953, extended for all supported linux architectures
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+2006-10-05  Matthias Klose  <doko@debian.org>
+
+	* gcc/config/alpha/linux.h (CPP_SPEC): Define.
+	* gcc/config/arm/linux-gas.h (SUBTARGET_CPP_SPEC): Extend.
+
+Index: gcc/config/alpha/linux.h
+===================================================================
+--- gcc/config/alpha/linux.h	(revision 117458)
++++ gcc/config/alpha/linux.h	(working copy)
+@@ -49,6 +49,8 @@
+    %{shared:-lc} \
+    %{!shared: %{profile:-lc_p}%{!profile:-lc}}"
+ 
++#define CPP_SPEC "%{posix:-D_POSIX_SOURCE} %{pthread:-D_REENTRANT}"
++
+ /* Show that we need a GP when profiling.  */
+ #undef TARGET_PROFILING_NEEDS_GP
+ #define TARGET_PROFILING_NEEDS_GP 1
+Index: gcc/config/arm/linux-gas.h
+===================================================================
+--- gcc/config/arm/linux-gas.h	(revision 117458)
++++ gcc/config/arm/linux-gas.h	(working copy)
+@@ -28,7 +28,7 @@
+ #define DEFAULT_SIGNED_CHAR 0
+ 
+ #undef  SUBTARGET_CPP_SPEC
+-#define SUBTARGET_CPP_SPEC  "%{posix:-D_POSIX_SOURCE}"
++#define SUBTARGET_CPP_SPEC  "%{posix:-D_POSIX_SOURCE} %{pthread:-D_REENTRANT}"
+ 
+ #undef  SIZE_TYPE
+ #define SIZE_TYPE "unsigned int"

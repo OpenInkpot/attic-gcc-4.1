@@ -10,90 +10,134 @@
 patchdir	?= debian/patches
 
 # which patches should be applied?
+# gcc-hash-style-both is not applied until binutils is upgraded
 debian_patches = \
-	pr26004 \
-	pr26526 \
-	pr26557 \
-	pr26587 \
-	pr26672 \
-	libjava-4.1.1 \
-	libjava-update \
+	svn-updates \
 	gcc-version \
 	gcc-textdomain \
-	rename-info-files \
+	gcc-driver-extra-langs \
+	gcc-long-double \
+	libstdc++-long-double \
 	libstdc++-pic \
 	libstdc++-doclink \
 	gccbug \
 	gccbug-posix \
+	boehm-gc-backport \
 	boehm-gc-nocheck \
 	fastjar-version \
+	fastjar-doc \
 	libstdc++-doxygen \
-	classmap-path \
-	libjava-dlsearch-path \
-	libjava-stacktrace \
-	libjava-hppa \
+	gcc-expandv \
+	libffi-configure \
+	libffi-backport \
+	libffi-backport2 \
+	alpha-no-ev4-directive \
 	arm-libffi \
+	note-gnu-stack \
 	arm-gij \
+	hppa-cbranch \
+	hppa-cbranch2 \
+	m68k-fjump \
+	m68k-gc \
+	m68k-save_pic \
+	m68k-libffi2 \
+	m68k-dwarf \
+	m68k-split_shift \
+	m68k-prevent-qipush \
+	m68k-jumptable \
+	m68k-peephole \
+	m68k-return \
+	m68k-sig-unwind \
+	m68k-align-code \
+	m68k-align-stack \
+	m68k-dwarf3 \
+	m68k-fpcompare \
+	m68k-secondary-addr-reload \
+	m68k-notice-move \
+	m68k-symbolic-operand \
+	m68k-bitfield-offset \
+	pr25524 \
+	pr26885 \
+	pr26864 \
+	pr27227 \
+	pr26208 \
+	pr26208-r111674 \
+	pr11953 \
+	slind-hacks \
+	gcc-dwarf2-h \
+	gcc-unwind-r111705 \
+	gcc-unwind-r120406 \
+	pr9861-nojava \
 
-#	cvs-updates \
 
 
-#remove me
-#ifeq ($(with_multiarch_inc),yes)
-#  debian_patches += multiarch-include
-#endif
 ifeq ($(with_multiarch_lib),yes)
   debian_patches += multiarch-lib
 endif
 
-ifeq ($(with_libffi),yes)
-  ifneq ($(with_java),yes)
-    debian_patches += libffi-without-libgcj
-  endif
-endif
-
-ifeq ($(with_separate_libgcj),yes)
-  ifneq (,$(findstring gcc-4, $(PKGSOURCE)))
-    debian_patches += disable-libgcj
-  endif
+ifeq ($(with_java),yes)
+  debian_patches += mips-libjava-interp
 endif
 
 ifeq ($(with_proto),yes)
   debian_patches += deb-protoize
 endif
 
-ifeq ($(with_objc),yes)
-  debian_patches += # libobjc
-endif
-
 ifeq ($(with_ada),yes)
+  debian_patches += ada-gcc-name ada-default-project-path #ada-names
+  debian_patches += ada-symbolic-tracebacks ada-driver-check
+  debian_patches += ada-pr15802
   ifeq ($(with_libgnat),yes)
-    debian_patches += ada-link-lib
+    debian_patches += ada-gnatvsn ada-link-lib ada-libgnatvsn ada-libgnatprj
+    debian_patches += ada-acats
   endif
-  debian_patches += ada-gcc-name #ada-names
   ifeq ($(DEB_TARGET_ARCH)-$(distribution),ia64-Debian)
     debian_patches += ignore-comp-fail
   endif
 endif
 
 ifeq ($(with_pascal),yes)
-  debian_patches += gpc-3.x gpc-updates
-  debian_patches += gpc-names gpc-test-summary
-  ifneq ($(with_gpidump),yes)
-    debian_patches += gpc-no-gpidump
-  endif
+  debian_patches += gpc-gcc-4.x gpc-4.1 gpc-updates gpc-bison-2.2
+  debian_patches += gpc-names
 endif
 
 ifeq ($(DEB_TARGET_ARCH_OS),hurd)
-  debian_patches += hurd-changes
+  debian_patches += hurd-changes hurd-fast-math
 endif
 
 ifeq ($(DEB_TARGET_ARCH),alpha)
   debian_patches += alpha-ieee mudflap-nocheck
+  ifneq ($(GFDL_INVARIANT_FREE),yes)
+    debian_patches += alpha-ieee-doc
+  endif
+endif
+
+ifeq ($(DEB_TARGET_ARCH),arm)
+  debian_patches += arm-pragma-pack
+endif
+
+ifeq ($(DEB_TARGET_ARCH),m68k)
+  debian_patches += m68k-bitfield pr25514 pr27736 m68k-autoinc
+  debian_patches += m68k-dwarf2 m68k-peephole-note m68k-java
+  debian_patches += m68k-prevent-swap m68k-reg-inc m68k-noautoinc-setjmp
+endif
+
+ifeq ($(DEB_TARGET_ARCH),sparc)
+  debian_patches += sparc-niagara
+  debian_patches += sparc-g7
+  ifneq ($(GFDL_INVARIANT_FREE),yes)
+    debian_patches += sparc-niagara-doc
+  endif
+endif
+
+ifneq (,$(filter $(DEB_TARGET_ARCH), ia64))
+  debian_patches += pr27880 no-getipinfo
 endif
 
 ifeq ($(DEB_TARGET_ARCH_OS),kfreebsd)
+  debian_patches += kbsd-gnu
   debian_patches += kbsd-gnu-ada
+  debian_patches += kbsd-gnu-java
 endif
 ifeq ($(DEB_TARGET_ARCH_OS),knetbsd)
   debian_patches += # kbsd-gnu
@@ -103,14 +147,12 @@ ifeq ($(DEB_TARGET_ARCH_OS),netbsd)
 endif
 
 ifdef DEB_CROSS
-  debian_patches += cross-include
+  debian_patches += cross-include cross-fixes
 endif
 
 ifeq ($(DEB_TARGET_ARCH_OS),uclibc)
   debian_patches += uclibc-conf uclibc-locale missing-execinfo_h uclibc-libstdc++-includes uclibc-wchar-fix uclibc-index-macro
 endif
-# not applied by default
-#debian_patches += protector
 
 debian_patches += link-libs reporting
 
@@ -120,7 +162,10 @@ ifeq ($(PKGSOURCE),gcc-snapshot)
   debian_patches =
 endif
 
-debian_patches += cpu-default-i486 reporting gcc-ice-hack
+#ifneq ($(with_generic_patch),yes)
+#  debian_patches += cpu-default-i486
+#endif
+debian_patches += reporting gcc-ice-hack
 
 ifeq ($(with_java_biarch_awt),yes)
   debian_patches += libjava-biarch-awt
@@ -130,7 +175,7 @@ ifeq ($(biarch),yes)
   ifeq (,$(findstring libjava, $(biarch_multidir_names)))
     debian_patches += disable-biarch-check
   endif
-  debian_patches += biarch-include config-ml
+  debian_patches += config-ml libjava-biarch-alsa
 
   ifeq ($(DEB_TARGET_ARCH),powerpc)
     debian_patches += powerpc-biarch
@@ -143,6 +188,9 @@ ifeq ($(biarch),yes)
   endif
   ifeq ($(DEB_TARGET_ARCH),i386)
     debian_patches += i386-biarch
+    ifeq ($(with_generic_patch),yes)
+      debian_patches += gcc-biarch-generic
+    endif
   endif
   ifneq ($(with_64bit_check),yes)
     debian_patches += disable-configure-run-check
@@ -153,18 +201,17 @@ ifeq ($(biarch32),yes)
   ifeq (,$(findstring libjava, $(biarch_multidir_names)))
     debian_patches += disable-biarch-check
   endif
-  ifeq ($(distribution)-$(DEB_TARGET_ARCH),Ubuntu-amd64)
-    debian_patches += disable-biarch-check-mf
-  endif
-  debian_patches += biarch-include config-ml libjava-biarch-alsa
+  debian_patches += config-ml libjava-biarch-alsa
 
   ifeq ($(DEB_TARGET_ARCH),amd64)
     debian_patches += amd64-biarch
-    debian_patches += libjava-ia32fix
   endif
   ifeq ($(DEB_TARGET_ARCH),ppc64)
     # FIXME: needed for 4.1?
     debian_patches += ppc64-biarch ppc64-ada
+  endif
+  ifeq ($(DEB_TARGET_ARCH),kfreebsd-amd64)
+    debian_patches += amd64-biarch
   endif
   ifneq ($(with_32bit_check),yes)
     debian_patches += disable-configure-run-check
@@ -175,7 +222,7 @@ endif
 patch: $(patch_stamp)
 $(patch_stamp): $(unpack_stamp) pre-patch \
     $(foreach p,$(debian_patches),$(patch_stamp)-$(p))
-	echo -e "\nPatches that Debian applied in this version:" > pxxx
+	echo -e "\nPatches that Slind applied in this version:" > pxxx
 	for i in $(debian_patches); do \
 	  echo -e "\n$$i:" >> pxxx; \
 	  sed -n 's/^# *DP: */  /p' $(patchdir)/$$i.dpatch >> pxxx; \

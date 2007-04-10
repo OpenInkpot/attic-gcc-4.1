@@ -1,0 +1,57 @@
+#! /bin/sh -e
+
+# DP: SVN updates from the 4.1 branch upto 20070306.
+
+last_updated()
+{
+	cat > ${dir}LAST_UPDATED <<EOF
+Tue Mar  6 21:56:00 CET 2007
+Tue Mar  6 20:56:00 UTC 2007 (revision 122637)
+EOF
+}
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+	touch ${dir}libjava/testsuite/libjava.jni/PR28178.out
+	last_updated
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+# diff -urN --exclude=.svn gcc_4_1_2_release gcc-4_1-branch
+# svn diff svn://gcc.gnu.org/svn/gcc/tags/gcc_4_1_2_release svn://gcc.gnu.org/svn/gcc/branches/gcc-4_1-branch
+
+Index: gcc/doc/invoke.texi
+===================================================================
+--- gcc/doc/invoke.texi	(.../tags/gcc_4_1_2_release)	(Revision 122637)
++++ gcc/doc/invoke.texi	(.../branches/gcc-4_1-branch)	(Revision 122637)
+@@ -6082,6 +6082,12 @@
+ @option{reorder-block-duplicate} since information about the hot spots is more
+ accurate.
+ 
++@item max-sched-ready-insns
++The maximum number of instructions ready to be issued the scheduler should
++consider at any given time during the first scheduling pass.  Increasing
++values mean more thorough searches, making the compilation time increase
++with probably little benefit.  The default value is 100.
++
+ @item max-sched-region-blocks
+ The maximum number of blocks in a region to be considered for
+ interblock scheduling.  The default value is 10.

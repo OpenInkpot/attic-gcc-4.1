@@ -1,0 +1,2266 @@
+#! /bin/sh -e
+
+# DP: updates from the redhat/gcc-4_1-branch for the libjava backport
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+Index: gcc/java/jcf-write.c
+===================================================================
+--- gcc/java/jcf-write.c	(revision 117035)
++++ gcc/java/jcf-write.c	(revision 117036)
+@@ -2651,10 +2651,14 @@
+ 	    if (TREE_CODE (f) != VOID_TYPE)
+ 	      {
+ 		int size = TYPE_IS_WIDE (f) ? 2 : 1;
++		/* Always note the push here, so that we correctly
++		   compute the required maximum stack size.  */
++		NOTE_PUSH (size);
+ 		if (target == IGNORE_TARGET)
+-		  emit_pop (size, state);
+-		else
+-		  NOTE_PUSH (size);
++		  {
++		    emit_pop (size, state);
++		    NOTE_POP (size);
++		  }
+ 	      }
+ 	    break;
+ 	  }
+Index: gcc/java/jvspec.c
+===================================================================
+--- gcc/java/jvspec.c	(revision 117035)
++++ gcc/java/jvspec.c	(revision 117036)
+@@ -1,6 +1,6 @@
+ /* Specific flags and argument handling of the front-end of the 
+    GNU compiler for the Java(TM) language.
+-   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
++   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006
+    Free Software Foundation, Inc.
+ 
+ This file is part of GCC.
+@@ -358,7 +358,6 @@
+ 	  else if (strcmp (argv[i], "-fsyntax-only") == 0
+ 		   || strcmp (argv[i], "--syntax-only") == 0)
+ 	    {
+-	      want_spec_file = 0;
+ 	      library = 0;
+ 	      will_link = 0;
+ 	      continue;
+Index: gcc/java/ChangeLog
+===================================================================
+--- gcc/java/ChangeLog	(revision 117035)
++++ gcc/java/ChangeLog	(revision 117036)
+@@ -1,3 +1,30 @@
++2006-09-12  Tom Tromey  <tromey@redhat.com>
++
++	* expr.c (push_value): Always flush quick stack.
++
++2006-09-12  Tom Tromey  <tromey@redhat.com>
++
++	PR java/29013:
++	* jcf-write.c (generate_bytecode_insns) <CALL_EXPR>: Always note
++	the push of the called method's return result.
++
++2006-09-12  Tom Tromey  <tromey@redhat.com>
++
++	* jvspec.c (lang_specific_driver): Read spec file even if
++	-fsyntax-only.
++
++2006-09-12  Tom Tromey  <tromey@redhat.com>
++
++	PR java/28754:
++	* expr.c (expand_java_field_op): Initialize field's declaring
++	interface if necessary.
++
++2006-09-12  Tom Tromey  <tromey@redhat.com>
++
++	PR java/28892:
++	* expr.c (expand_java_field_op): No error for assignments not in
++	class initializer or constructor.
++
+ 2006-08-22  Andrew Haley  <aph@redhat.com>
+ 
+ 	* decl.c (java_add_stmt): Give the statement list a type.
+Index: gcc/java/expr.c
+===================================================================
+--- gcc/java/expr.c	(revision 117035)
++++ gcc/java/expr.c	(revision 117036)
+@@ -301,6 +301,13 @@
+       TREE_CHAIN (node) = quick_stack;
+       quick_stack = node;
+     }
++  /* If the value has a side effect, then we need to evaluate it
++     whether or not the result is used.  If the value ends up on the
++     quick stack and is then popped, this won't happen -- so we flush
++     the quick stack.  It is safest to simply always flush, though,
++     since TREE_SIDE_EFFECTS doesn't capture COMPONENT_REF, and for
++     the latter we may need to strip conversions.  */
++  flush_quick_stack ();
+ }
+ 
+ /* Pop a type from the type stack.
+@@ -2837,7 +2844,12 @@
+   field_ref = build_field_ref (field_ref, self_type, field_name);
+   if (is_static
+       && ! flag_indirect_dispatch)
+-    field_ref = build_class_init (self_type, field_ref);
++    {
++      tree context = DECL_CONTEXT (field_ref);
++      if (context != self_type && CLASS_INTERFACE (TYPE_NAME (context)))
++	field_ref = build_class_init (context, field_ref);
++      field_ref = build_class_init (self_type, field_ref);
++    }
+   if (is_putting)
+     {
+       flush_quick_stack ();
+@@ -2846,21 +2858,10 @@
+ 	  if (DECL_CONTEXT (field_decl) != current_class)
+             error ("assignment to final field %q+D not in field's class",
+                    field_decl);
+-	  else if (FIELD_STATIC (field_decl))
+-	    {
+-	      if (!DECL_CLINIT_P (current_function_decl))
+-		warning (0, "assignment to final static field %q+D not in "
+-                         "class initializer",
+-                         field_decl);
+-	    }
+-	  else
+-	    {
+-	      tree cfndecl_name = DECL_NAME (current_function_decl);
+-	      if (! DECL_CONSTRUCTOR_P (current_function_decl)
+-		  && !ID_FINIT_P (cfndecl_name))
+-                warning (0, "assignment to final field %q+D not in constructor",
+-			 field_decl);
+-	    }
++	  /* We used to check for assignments to final fields not
++	     occurring in the class initializer or in a constructor
++	     here.  However, this constraint doesn't seem to be
++	     enforced by the JVM.  */
+ 	}      
+ 
+       if (TREE_THIS_VOLATILE (field_decl))
+
+
+Index: libjava/Makefile.in
+===================================================================
+--- libjava/Makefile.in	(revision 116606)
++++ libjava/Makefile.in	(working copy)
+@@ -9238,7 +9238,21 @@
+ 	rm -rf $$JARDIR $$JARDIR.stamp
+ 
+ libgcj-tools-$(gcc_version).jar: classpath/tools/tools.jar
+-	cp $< $@
++	javasrcdir=`cd $(srcdir) && pwd`; \
++	JARDIR=`mktemp -d $@.XXXXXX` || exit 1; \
++	touch -r $$javasrcdir/../gcc/ChangeLog $$JARDIR.stamp; \
++	[ $$javasrcdir/../gcc/java/ChangeLog -nt $$JARDIR.stamp ] \
++	    && touch -r $$javasrcdir/../gcc/java/ChangeLog $$JARDIR.stamp; \
++	[ $$javasrcdir/ChangeLog -nt $$JARDIR.stamp ] \
++	    && touch -r $$javasrcdir/ChangeLog $$JARDIR.stamp; \
++	cd $$JARDIR || exit 1; \
++	$(JAR) -xf ../$<; \
++	rm -rf META-INF; \
++	find -type f | xargs touch -r ../$$JARDIR.stamp; \
++	find -type d | xargs touch -r ../$$JARDIR.stamp; \
++	find * | LC_ALL=C sort | $(JAR) -cfM@E ../$@ || exit 1; \
++	cd ..; \
++	rm -rf $$JARDIR $$JARDIR.stamp
+ 
+ mostlyclean-local:
+ 	find . -name '*.lo' -print | xargs $(LIBTOOL) rm -f
+Index: libjava/libgcj_bc.c
+===================================================================
+--- libjava/libgcj_bc.c	(revision 116606)
++++ libjava/libgcj_bc.c	(working copy)
+@@ -92,3 +92,19 @@
+ void _Jv_AttachCurrentThread () {}
+ void _Jv_AttachCurrentThreadAsDaemon () {}
+ void _Jv_DetachCurrentThread () {}
++
++
++/* Classes for primitive types.  */
++
++#define DECLARE_PRIM_TYPE(NAME)			\
++  int _Jv_##NAME##Class;
++
++DECLARE_PRIM_TYPE(byte)
++DECLARE_PRIM_TYPE(short)
++DECLARE_PRIM_TYPE(int)
++DECLARE_PRIM_TYPE(long)
++DECLARE_PRIM_TYPE(boolean)
++DECLARE_PRIM_TYPE(char)
++DECLARE_PRIM_TYPE(float)
++DECLARE_PRIM_TYPE(double)
++DECLARE_PRIM_TYPE(void)
+Index: libjava/classpath/native/jni/gconf-peer/Makefile.in
+===================================================================
+--- libjava/classpath/native/jni/gconf-peer/Makefile.in	(revision 116606)
++++ libjava/classpath/native/jni/gconf-peer/Makefile.in	(working copy)
+@@ -313,6 +313,7 @@
+ libgconfpeer_la_LIBADD = $(top_builddir)/native/jni/classpath/native_state.lo \
+                        $(top_builddir)/native/jni/classpath/jcl.lo
+ 
++libgconfpeer_la_LDFLAGS = -avoid-version
+ AM_LDFLAGS = @CLASSPATH_MODULE@ @GCONF_LIBS@ @GDK_LIBS@
+ AM_CPPFLAGS = @CLASSPATH_INCLUDES@
+ AM_CFLAGS = @WARNING_CFLAGS@ @ERROR_CFLAGS@ @GCONF_CFLAGS@ @GDK_CFLAGS@
+Index: libjava/classpath/native/jni/gconf-peer/Makefile.am
+===================================================================
+--- libjava/classpath/native/jni/gconf-peer/Makefile.am	(revision 116606)
++++ libjava/classpath/native/jni/gconf-peer/Makefile.am	(working copy)
+@@ -5,6 +5,8 @@
+ libgconfpeer_la_LIBADD = $(top_builddir)/native/jni/classpath/native_state.lo \
+                        $(top_builddir)/native/jni/classpath/jcl.lo
+ 
++libgconfpeer_la_LDFLAGS = -avoid-version
++
+ AM_LDFLAGS = @CLASSPATH_MODULE@ @GCONF_LIBS@ @GDK_LIBS@
+ 
+ AM_CPPFLAGS = @CLASSPATH_INCLUDES@
+Index: libjava/classpath/native/jni/gtk-peer/gnu_java_awt_peer_gtk_GtkChoicePeer.c
+===================================================================
+--- libjava/classpath/native/jni/gtk-peer/gnu_java_awt_peer_gtk_GtkChoicePeer.c	(revision 116606)
++++ libjava/classpath/native/jni/gtk-peer/gnu_java_awt_peer_gtk_GtkChoicePeer.c	(working copy)
+@@ -1,5 +1,5 @@
+ /* gtkchoicepeer.c -- Native implementation of GtkChoicePeer
+-   Copyright (C) 1998, 1999 Free Software Foundation, Inc.
++   Copyright (C) 1998, 1999, 2006 Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -52,7 +52,7 @@
+ 
+   postChoiceItemEventID = (*cp_gtk_gdk_env())->GetMethodID (cp_gtk_gdk_env(), gtkchoicepeer,
+                                                "postChoiceItemEvent",
+-                                               "(Ljava/lang/String;I)V");
++                                               "(I)V");
+ }
+ 
+ static void selection_changed_cb (GtkComboBox *combobox, jobject peer);
+@@ -106,39 +106,7 @@
+ }
+ 
+ JNIEXPORT void JNICALL 
+-Java_gnu_java_awt_peer_gtk_GtkChoicePeer_append 
+-  (JNIEnv *env, jobject obj, jobjectArray items)
+-{
+-  gpointer ptr;
+-  jsize count, i;
+-  GtkWidget *bin;
+-
+-  gdk_threads_enter ();
+-
+-  ptr = NSA_GET_PTR (env, obj);
+-  bin = choice_get_widget (GTK_WIDGET (ptr));
+-  
+-  count = (*env)->GetArrayLength (env, items);
+-
+-  for (i = 0; i < count; i++) 
+-    {
+-      jobject item;
+-      const char *label;
+-
+-      item = (*env)->GetObjectArrayElement (env, items, i);
+-      label = (*env)->GetStringUTFChars (env, item, NULL);
+-
+-      gtk_combo_box_append_text (GTK_COMBO_BOX (bin), label);
+-
+-      (*env)->ReleaseStringUTFChars (env, item, label);
+-      (*env)->DeleteLocalRef(env, item);
+-    }
+-
+-  gdk_threads_leave ();
+-}
+-
+-JNIEXPORT void JNICALL 
+-Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeAdd 
++Java_gnu_java_awt_peer_gtk_GtkChoicePeer_add 
+   (JNIEnv *env, jobject obj, jstring item, jint index)
+ {
+   void *ptr;
+@@ -170,14 +138,16 @@
+ 
+   ptr = NSA_GET_PTR (env, obj);
+   bin = choice_get_widget (GTK_WIDGET (ptr));
+-  
++
++  /* First, unselect everything, to avoid problems when removing items. */
++  gtk_combo_box_set_active (GTK_COMBO_BOX (bin), -1);
+   gtk_combo_box_remove_text (GTK_COMBO_BOX (bin), index);
+ 
+   gdk_threads_leave ();
+ }
+ 
+-JNIEXPORT void JNICALL 
+-Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeRemoveAll 
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeRemoveAll
+   (JNIEnv *env, jobject obj)
+ {
+   void *ptr;
+@@ -224,8 +194,7 @@
+   
+   ptr = NSA_GET_PTR (env, obj);
+   bin = choice_get_widget (GTK_WIDGET (ptr));
+-  
+-  gtk_combo_box_set_active (GTK_COMBO_BOX (bin), index);
++  gtk_combo_box_set_active (GTK_COMBO_BOX (bin), (gint)index);
+ }
+ 
+ JNIEXPORT jint JNICALL 
+@@ -251,26 +220,11 @@
+ static void
+ selection_changed_cb (GtkComboBox *combobox, jobject peer)
+ {
+-  jstring label;
+-  GtkTreeModel *model;
+-  GtkTreeIter iter;
+-  gchar *selected;
+-  gint index;
++  gint index = gtk_combo_box_get_active(combobox);
+ 
+-  index = gtk_combo_box_get_active(combobox);
+-
+   if (index >= 0)
+-    {
+-      model = gtk_combo_box_get_model (combobox);
+-      gtk_combo_box_get_active_iter (combobox, &iter);
+-      gtk_tree_model_get (model, &iter, 0, &selected, -1);
+-      label = (*cp_gtk_gdk_env())->NewStringUTF (cp_gtk_gdk_env(), selected);
+-
+-      (*cp_gtk_gdk_env())->CallVoidMethod (cp_gtk_gdk_env(), peer,
+-                                    postChoiceItemEventID,
+-                                    label,
+-                                    (jint) AWT_ITEM_SELECTED);
+-    }
++    (*cp_gtk_gdk_env())->CallVoidMethod (cp_gtk_gdk_env(), peer,
++					 postChoiceItemEventID, (jint)index );
+ }
+ 
+ static GtkWidget *
+Index: libjava/classpath/native/fdlibm/mprec.c
+===================================================================
+--- libjava/classpath/native/fdlibm/mprec.c	(revision 116606)
++++ libjava/classpath/native/fdlibm/mprec.c	(working copy)
+@@ -666,7 +666,7 @@
+ _DEFUN (ulp, (_x), double _x)
+ {
+   union double_union x, a;
+-  register __Long L;
++  register int32_t L;
+ 
+   x.d = _x;
+ 
+Index: libjava/classpath/gnu/java/nio/charset/US_ASCII.java
+===================================================================
+--- libjava/classpath/gnu/java/nio/charset/US_ASCII.java	(revision 116606)
++++ libjava/classpath/gnu/java/nio/charset/US_ASCII.java	(working copy)
+@@ -134,6 +134,19 @@
+       super (cs, 1.0f, 1.0f);
+     }
+ 
++    public boolean canEncode(char c)
++    {
++      return c <= 0x7f;
++    }
++
++    public boolean canEncode(CharSequence cs)
++    {
++      for (int i = 0; i < cs.length(); ++i)
++        if (! canEncode(cs.charAt(i)))
++          return false;
++      return true;
++    }
++
+     protected CoderResult encodeLoop (CharBuffer in, ByteBuffer out)
+     {
+       // TODO: Optimize this in the case in.hasArray() / out.hasArray()
+@@ -141,7 +154,7 @@
+       {
+         char c = in.get ();
+ 
+-        if (c > Byte.MAX_VALUE)
++        if (c > 0x7f)
+           {
+             in.position (in.position () - 1);
+             return CoderResult.unmappableForLength (1);
+Index: libjava/classpath/gnu/java/nio/charset/ISO_8859_1.java
+===================================================================
+--- libjava/classpath/gnu/java/nio/charset/ISO_8859_1.java	(revision 116606)
++++ libjava/classpath/gnu/java/nio/charset/ISO_8859_1.java	(working copy)
+@@ -128,6 +128,19 @@
+       super (cs, 1.0f, 1.0f);
+     }
+ 
++    public boolean canEncode(char c)
++    {
++      return c <= 0xff;
++    }
++
++    public boolean canEncode(CharSequence cs)
++    {
++      for (int i = 0; i < cs.length(); ++i)
++        if (! canEncode(cs.charAt(i)))
++          return false;
++      return true;
++    }
++
+     protected CoderResult encodeLoop (CharBuffer in, ByteBuffer out)
+     {
+       // TODO: Optimize this in the case in.hasArray() / out.hasArray()
+Index: libjava/classpath/gnu/java/nio/charset/ByteCharset.java
+===================================================================
+--- libjava/classpath/gnu/java/nio/charset/ByteCharset.java	(revision 116606)
++++ libjava/classpath/gnu/java/nio/charset/ByteCharset.java	(working copy)
+@@ -156,6 +156,22 @@
+ 	  }
+     }
+ 
++    public boolean canEncode(char c)
++    {
++      byte b = (c < lookup.length) ? lookup[c] : 0;
++      return b != 0 || c == 0;
++    }
++
++    public boolean canEncode(CharSequence cs)
++    {
++      for (int i = 0; i < cs.length(); ++i)
++        {
++          if (! canEncode(cs.charAt(i)))
++            return false;
++        }
++      return true;
++    }
++
+     protected CoderResult encodeLoop (CharBuffer in, ByteBuffer out)
+     {
+       // TODO: Optimize this in the case in.hasArray() / out.hasArray()
+Index: libjava/classpath/gnu/java/net/protocol/http/HTTPURLConnection.java
+===================================================================
+--- libjava/classpath/gnu/java/net/protocol/http/HTTPURLConnection.java	(revision 116606)
++++ libjava/classpath/gnu/java/net/protocol/http/HTTPURLConnection.java	(working copy)
+@@ -149,6 +149,14 @@
+     final Credentials creds = (username == null) ? null :
+       new Credentials (username, password);
+     
++    if ("POST".equals(method))
++      {
++        String contentType = requestHeaders.getValue("Content-Type");
++        if (null == contentType)
++          requestHeaders.addValue("Content-Type",
++                                  "application/x-www-form-urlencoded");
++      }
++
+     boolean retry;
+     do
+       {
+Index: libjava/classpath/gnu/java/awt/peer/gtk/GtkChoicePeer.java
+===================================================================
+--- libjava/classpath/gnu/java/awt/peer/gtk/GtkChoicePeer.java	(revision 116606)
++++ libjava/classpath/gnu/java/awt/peer/gtk/GtkChoicePeer.java	(working copy)
+@@ -39,12 +39,15 @@
+ package gnu.java.awt.peer.gtk;
+ 
+ import java.awt.Choice;
++import java.awt.AWTEvent;
+ import java.awt.event.ItemEvent;
+ import java.awt.peer.ChoicePeer;
+ 
+ public class GtkChoicePeer extends GtkComponentPeer
+   implements ChoicePeer
+ {
++  private int selected;
++  
+   public GtkChoicePeer (Choice c)
+   {
+     super (c);
+@@ -52,31 +55,33 @@
+     int count = c.getItemCount ();
+     if (count > 0)
+       {
+-	String items[] = new String[count];
+ 	for (int i = 0; i < count; i++)
+-	  items[i] = c.getItem (i);
+-	  
+-	append (items);
++	  add( c.getItem(i), i );
++
++	selected = c.getSelectedIndex();
++	if( selected >= 0 )
++	  select( selected );
+       }
+-
+-    int selected = c.getSelectedIndex();
+-    if (selected >= 0)
+-      select(selected);
++    else
++      selected = -1;
+   }
+ 
+   native void create ();
+ 
+-  native void append (String items[]);
+   native int nativeGetSelected ();
+-  native void nativeAdd (String item, int index);
+-  native void nativeRemove (int index);
+-  native void nativeRemoveAll ();
+ 
+   native void connectSignals ();
+ 
+   native void selectNative (int position);
++
+   native void selectNativeUnlocked (int position);
+ 
++  public native void add (String item, int index);
++
++  native void nativeRemove(int index);
++
++  native void nativeRemoveAll();
++
+   public void select (int position)
+   {
+     if (Thread.currentThread() == GtkToolkit.mainThread)
+@@ -85,42 +90,18 @@
+       selectNative (position);
+   }
+ 
+-  public void add (String item, int index)
++  public void remove( int index )
+   {
+-    int before = nativeGetSelected();
+-    
+-    nativeAdd (item, index);
+-    
+-    /* Generate an ItemEvent if we added the first one or
+-       if we inserted at or before the currently selected item. */
+-    if ((before < 0) || (before >= index))
+-      {
+-        // Must set our state before notifying listeners
+-	((Choice) awtComponent).select (((Choice) awtComponent).getItem (0));
+-        postItemEvent (((Choice) awtComponent).getItem (0), ItemEvent.SELECTED);
+-      }
++    // Ensure the triggering of an event when removing item zero if zero is the
++    // selected item, even though the selected index doesn't change.
++    if( index == 0 && selected == 0 )
++      selected = -1; 
++    nativeRemove( index );
+   }
+ 
+-  public void remove (int index)
++  public void removeAll()
+   {
+-    int before = nativeGetSelected();
+-    int after;
+-    
+-    nativeRemove (index);
+-    after = nativeGetSelected();
+-    
+-    /* Generate an ItemEvent if we are removing the currently selected item
+-       and there are at least one item left. */
+-    if ((before == index) && (after >= 0))
+-      {
+-        // Must set our state before notifying listeners
+-	((Choice) awtComponent).select (((Choice) awtComponent).getItem (0));
+-        postItemEvent (((Choice) awtComponent).getItem (0), ItemEvent.SELECTED);
+-      }
+-  }
+-
+-  public void removeAll ()
+-  {
++    selected = -1; // we do not want to trigger a select event here.
+     nativeRemoveAll();
+   }
+   
+@@ -129,8 +110,34 @@
+     add (item, position);
+   }
+ 
+-  protected void postChoiceItemEvent (String label, int stateChange)
++  /**
++   * Callback from the native side on an item-select event, 
++   * which posts an event. The event is only posted if it represents an actual
++   * change. Selected is set to the peer's state initially, so that the
++   * first call to select(int) from the constructor will not trigger an event.
++   * (it should not)
++   */
++  protected void postChoiceItemEvent ( int index )
+   {
+-    postItemEvent (label, stateChange);
++    if( selected != index )
++      {
++	selected = index;
++	postItemEvent (((Choice) awtComponent).getItem( selected ), 
++		       ItemEvent.SELECTED);
++      }
+   }
++
++  /**
++   * Catches the event and calls Choice.select() if the component state
++   * needs updating.
++   */
++  public void handleEvent (AWTEvent event)
++  {
++    super.handleEvent( event );
++    if( event instanceof ItemEvent )
++      if( ((ItemEvent)event).getItemSelectable() == awtComponent &&
++	  ((ItemEvent)event).getStateChange() == ItemEvent.SELECTED )
++	((Choice)awtComponent).select( selected );
++  }
+ }
++
+Index: libjava/classpath/gnu/javax/net/ssl/provider/SSLSocket.java
+===================================================================
+--- libjava/classpath/gnu/javax/net/ssl/provider/SSLSocket.java	(revision 116606)
++++ libjava/classpath/gnu/javax/net/ssl/provider/SSLSocket.java	(working copy)
+@@ -845,7 +845,6 @@
+       {
+         return super.isBound();
+       }
+-    //throw new UnsupportedOperationException("1.4 methods not enabled");
+   }
+ 
+   public boolean isClosed()
+@@ -858,149 +857,138 @@
+       {
+         return super.isClosed();
+       }
+-    //throw new UnsupportedOperationException("1.4 methods not enabled");
+   }
+ 
+-  //public SocketAddress getRemoteSocketAddress()
+-  //{
+-  //  if (underlyingSocket != null)
+-  //    {
+-  //      return underlyingSocket.getRemoteSocketAddress();
+-  //    }
+-  //  else
+-  //    {
+-  //      return super.getRemoteSocketAddress();
+-  //    }
+-  //}
++  public SocketAddress getRemoteSocketAddress()
++  {
++   if (underlyingSocket != null)
++     {
++       return underlyingSocket.getRemoteSocketAddress();
++     }
++   else
++     {
++       return super.getRemoteSocketAddress();
++     }
++  }
+ 
+   public void setOOBInline(boolean flag) throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    underlyingSocket.setOOBInline(flag);
+-    //  }
+-    //else
+-    //  {
+-    //    super.setOOBInline(flag);
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	underlyingSocket.setOOBInline(flag);
++      }
++    else
++      {
++	super.setOOBInline(flag);
++      }
+   }
+ 
+   public boolean getOOBInline() throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    return underlyingSocket.getOOBInline();
+-    //  }
+-    //else
+-    //  {
+-    //    return super.getOOBInline();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	return underlyingSocket.getOOBInline();
++      }
++    else
++      {
++	return super.getOOBInline();
++      }
+   }
+ 
+   public void setKeepAlive(boolean flag) throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    underlyingSocket.setKeepAlive(flag);
+-    //  }
+-    //else
+-    //  {
+-    //    super.setKeepAlive(flag);
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	underlyingSocket.setKeepAlive(flag);
++      }
++    else
++      {
++	super.setKeepAlive(flag);
++      }
+   }
+ 
+   public boolean getKeepAlive() throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    return underlyingSocket.getKeepAlive();
+-    //  }
+-    //else
+-    //  {
+-    //    return super.getKeepAlive();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	return underlyingSocket.getKeepAlive();
++      }
++    else
++      {
++	return super.getKeepAlive();
++      }
+   }
+ 
+   public void setTrafficClass(int clazz) throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    underlyingSocket.setTrafficClass(clazz);
+-    //  }
+-    //else
+-    //  {
+-    //    super.setTrafficClass(clazz);
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	underlyingSocket.setTrafficClass(clazz);
++      }
++    else
++      {
++	super.setTrafficClass(clazz);
++      }
+   }
+ 
+   public int getTrafficClass() throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    return underlyingSocket.getTrafficClass();
+-    //  }
+-    //else
+-    //  {
+-    //    return super.getTrafficClass();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	return underlyingSocket.getTrafficClass();
++      }
++    else
++      {
++	return super.getTrafficClass();
++      }
+   }
+ 
+   public void setReuseAddress(boolean flag) throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    underlyingSocket.setReuseAddress(flag);
+-    //  }
+-    //else
+-    //  {
+-    //    super.setReuseAddress(flag);
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	underlyingSocket.setReuseAddress(flag);
++      }
++    else
++      {
++	super.setReuseAddress(flag);
++      }
+   }
+ 
+   public boolean getReuseAddress() throws SocketException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    return underlyingSocket.getReuseAddress();
+-    //  }
+-    //else
+-    //  {
+-    //    return super.getReuseAddress();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	return underlyingSocket.getReuseAddress();
++      }
++    else
++      {
++	return super.getReuseAddress();
++      }
+   }
+ 
+   public void shutdownInput() throws IOException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    underlyingSocket.shutdownInput();
+-    //  }
+-    //else
+-    //  {
+-    //    super.shutdownInput();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	underlyingSocket.shutdownInput();
++      }
++    else
++      {
++	super.shutdownInput();
++      }
+   }
+ 
+   public void shutdownOutput() throws IOException
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    underlyingSocket.shutdownOutput();
+-    //  }
+-    //else
+-    //  {
+-    //    super.shutdownOutput();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	underlyingSocket.shutdownOutput();
++      }
++    else
++      {
++	super.shutdownOutput();
++      }
+   }
+ 
+   public boolean isConnected()
+@@ -1013,33 +1001,30 @@
+       {
+         return super.isConnected();
+       }
+-    //throw new UnsupportedOperationException("1.4 methods not enabled");
+   }
+ 
+   public boolean isInputShutdown()
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    return underlyingSocket.isInputShutdown();
+-    //  }
+-    //else
+-    //  {
+-    //    return super.isInputShutdown();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	return underlyingSocket.isInputShutdown();
++      }
++    else
++      {
++	return super.isInputShutdown();
++      }
+   }
+ 
+   public boolean isOutputShutdown()
+   {
+-    //if (underlyingSocket != null)
+-    //  {
+-    //    return underlyingSocket.isOutputShutdown();
+-    //  }
+-    //else
+-    //  {
+-    //    return super.isOutputShutdown();
+-    //  }
+-    throw new UnsupportedOperationException("1.4 methods not enabled");
++    if (underlyingSocket != null)
++      {
++	return underlyingSocket.isOutputShutdown();
++      }
++    else
++      {
++	return super.isOutputShutdown();
++      }
+   }
+ 
+   protected void finalize()
+Index: libjava/classpath/tools/gnu/classpath/tools/appletviewer/Main.java
+===================================================================
+--- libjava/classpath/tools/gnu/classpath/tools/appletviewer/Main.java	(revision 116606)
++++ libjava/classpath/tools/gnu/classpath/tools/appletviewer/Main.java	(working copy)
+@@ -44,10 +44,12 @@
+ import gnu.classpath.tools.getopt.Parser;
+ import java.applet.Applet;
+ import java.awt.Dimension;
++import java.io.BufferedReader;
+ import java.io.FileInputStream;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.io.InputStreamReader;
+ import java.io.OutputStream;
+ import java.net.URL;
+ import java.util.ArrayList;
+@@ -249,6 +251,7 @@
+ 
+     if (pluginMode)
+       {
++        // Plugin will warn user about missing security manager.
+ 	InputStream in;
+ 	OutputStream out;
+ 
+@@ -259,6 +262,33 @@
+       }
+     else
+       {
++        // Warn user about missing security manager.
++        System.err.println("WARNING: CURRENTLY GAPPLETVIEWER RUNS WITH NO SECURITY MANAGER.\n\n"
++                           + "THIS MEANS THAT APPLETS YOU LOAD CAN DO ANYTHING A JAVA APPLICATION\n"
++                           + "THAT YOU DOWNLOAD AND RUN CAN DO.  BE *VERY* CAREFUL WHICH APPLETS YOU RUN.\n"
++                           + "DO NOT USE GAPPLETVIEWER ON YOUR SYSTEM IF YOUR SYSTEM STORES IMPORTANT DATA.\n"
++                           + "THIS DATA CAN BE DESTROYED OR STOLEN IF YOU LOAD A MALICIOUS APPLET.\n");
++
++        System.err.println("[press 'c' or 'C' to continue or anything else to quit]");
++
++        BufferedReader stdin = new BufferedReader(new InputStreamReader(System.in));
++        String response = null;
++
++        try
++          {
++            response = stdin.readLine();
++          }
++        catch (IOException e)
++          {
++            System.err.println("failed to read response to warning message: " + e);
++            System.exit(1);
++          }
++
++        if (!(response.equals("c") || response.equals("C")))
++          {
++            System.exit(0);
++          }
++
+         if (code == null)
+           {
+             // The --code option wasn't given and there are no URL
+Index: libjava/classpath/java/net/SocketPermission.java
+===================================================================
+--- libjava/classpath/java/net/SocketPermission.java	(revision 116606)
++++ libjava/classpath/java/net/SocketPermission.java	(working copy)
+@@ -164,13 +164,57 @@
+    */
+   public SocketPermission(String hostport, String actions)
+   {
+-    super(hostport);
++    super(maybeBracketIPv6Address(hostport));
+ 
+-    setHostPort(hostport);
++    setHostPort(getName());
+     setActions(actions);
+   }
+ 
+   /**
++   * IPv6 addresses in the hostport must either be enclosed by
++   * "[" and "]" or be specified in the full uncompressed form.
++   * In the latter case proprietary JVMs will quote the address
++   * with "[" and "]", so we do to.
++   */
++  private static String maybeBracketIPv6Address(String hostport)
++  {
++    if (hostport.length() == 0 || hostport.charAt(0) == '[')
++      return hostport;
++
++    int colons = 0, last_colon = 0;
++    for (int i = 0; i < hostport.length(); i++)
++      {
++	if (hostport.charAt(i) == ':')
++	  {
++	    if (i - last_colon == 1)
++	      throw new IllegalArgumentException("Ambiguous hostport part");
++	    colons++;
++	    last_colon = i;
++	  }
++      }
++
++    switch (colons)
++      {
++      case 0:
++      case 1:
++	// a hostname or IPv4 address
++	return hostport;
++	
++      case 7:
++	// an IPv6 address with no ports
++	return "[" + hostport + "]";
++
++      case 8:
++	// an IPv6 address with ports
++	return "[" + hostport.substring(0, last_colon) + "]"
++	  + hostport.substring(last_colon);
++
++      default:
++	throw new IllegalArgumentException("Ambiguous hostport part");
++      }
++  }
++  
++  /**
+    * Parse the hostport argument to the constructor.
+    */
+   private void setHostPort(String hostport)
+Index: libjava/classpath/java/net/NetworkInterface.java
+===================================================================
+--- libjava/classpath/java/net/NetworkInterface.java	(revision 116606)
++++ libjava/classpath/java/net/NetworkInterface.java	(working copy)
+@@ -112,10 +112,7 @@
+ 	InetAddress addr = (InetAddress) addresses.nextElement();
+ 	try
+ 	  {
+-	    String hostAddress = addr.getHostAddress();
+-	    if (addr instanceof Inet6Address)
+-	      hostAddress = "[" + hostAddress + "]";
+-	    s.checkConnect(hostAddress, 58000);
++	    s.checkConnect(addr.getHostAddress(), 58000);
+ 	    tmpInetAddresses.add(addr);
+ 	  }
+ 	catch (SecurityException e)
+Index: libjava/classpath/java/awt/Choice.java
+===================================================================
+--- libjava/classpath/java/awt/Choice.java	(revision 116606)
++++ libjava/classpath/java/awt/Choice.java	(working copy)
+@@ -1,5 +1,5 @@
+ /* Choice.java -- Java choice button widget.
+-   Copyright (C) 1999, 2000, 2001, 2002, 2004 Free Software Foundation, Inc.
++   Copyright (C) 1999, 2000, 2001, 2002, 2004, 2006 Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -51,56 +51,47 @@
+ import javax.accessibility.AccessibleRole;
+ 
+ /**
+-  * This class implements a drop down choice list.
+-  *
+-  * @author Aaron M. Renn (arenn@urbanophile.com)
+-  */
++ * This class implements a drop down choice list.
++ *
++ * @author Aaron M. Renn (arenn@urbanophile.com)
++ */
+ public class Choice extends Component
+   implements ItemSelectable, Serializable, Accessible
+ {
++  /**
++   * The number used to generate the name returned by getName.
++   */
++  private static transient long next_choice_number;
+ 
+-/*
+- * Static Variables
+- */
++  // Serialization constant
++  private static final long serialVersionUID = -4075310674757313071L;
+ 
+-/**
+- * The number used to generate the name returned by getName.
+- */
+-private static transient long next_choice_number;
++  /**
++   * @serial A list of items for the choice box, which can be <code>null</code>.
++   * This is package-private to avoid an accessor method.
++   */
++  Vector pItems = new Vector();
+ 
+-// Serialization constant
+-private static final long serialVersionUID = -4075310674757313071L;
++  /**
++   * @serial The index of the selected item in the choice box.
++   */
++  private int selectedIndex = -1;
+ 
+-/*************************************************************************/
++  /**
++   * ItemListener chain
++   */
++  private ItemListener item_listeners;
+ 
+-/*
+- * Instance Variables
+- */
+-
+-/**
+-  * @serial A list of items for the choice box, which can be <code>null</code>.
+-  * This is package-private to avoid an accessor method.
+-  */
+-Vector pItems = new Vector();
+-
+-/**
+-  * @serial The index of the selected item in the choice box.
+-  */
+-private int selectedIndex = -1;
+-
+-// Listener chain
+-private ItemListener item_listeners;
+-
+-/**
+- * This class provides accessibility support for the
+- * combo box.
+- *
+- * @author Jerry Quinn  (jlquinn@optonline.net)
+- * @author Andrew John Hughes (gnu_andrew@member.fsf.org)
+- */
++  /**
++   * This class provides accessibility support for the
++   * combo box.
++   *
++   * @author Jerry Quinn  (jlquinn@optonline.net)
++   * @author Andrew John Hughes (gnu_andrew@member.fsf.org)
++   */
+   protected class AccessibleAWTChoice
+-  extends AccessibleAWTComponent
+-  implements AccessibleAction
++    extends AccessibleAWTComponent
++    implements AccessibleAction
+   {
+ 
+     /**
+@@ -186,19 +177,12 @@
+       if (i < 0 || i >= pItems.size())
+ 	return false;
+ 	    
+-      Choice.this.processItemEvent(new ItemEvent(Choice.this,
+-						 ItemEvent.ITEM_STATE_CHANGED,
+-						 this, ItemEvent.SELECTED));
++      Choice.this.select( i );
++
+       return true;
+     }
+   }
+ 
+-/*************************************************************************/
+-
+-/*
+- * Constructors
+- */
+-
+   /**
+    * Initializes a new instance of <code>Choice</code>.
+    *
+@@ -211,398 +195,324 @@
+       throw new HeadlessException ();
+   }
+ 
+-/*************************************************************************/
++  /**
++   * Returns the number of items in the list.
++   *
++   * @return The number of items in the list.
++   */
++  public int getItemCount()
++  {
++    return countItems ();
++  }
+ 
+-/*
+- * Instance Methods
+- */
++  /**
++   * Returns the number of items in the list.
++   *
++   * @return The number of items in the list.
++   *
++   * @deprecated This method is deprecated in favor of <code>getItemCount</code>.
++   */
++  public int countItems()
++  {
++    return pItems.size();
++  }
+ 
+-/**
+-  * Returns the number of items in the list.
+-  *
+-  * @return The number of items in the list.
+-  */
+-public int
+-getItemCount()
+-{
+-  return countItems ();
+-}
++  /**
++   * Returns the item at the specified index in the list.
++   *
++   * @param index The index into the list to return the item from.
++   *
++   * @exception ArrayIndexOutOfBoundsException If the index is invalid.
++   */
++  public String getItem(int index)
++  {
++    return (String)pItems.elementAt(index);
++  }
+ 
+-/*************************************************************************/
++  /**
++   * Adds the specified item to this choice box.
++   *
++   * @param item The item to add.
++   *
++   * @exception NullPointerException If the item's value is null
++   *
++   * @since 1.1
++   */
++  public synchronized void add(String item)
++  {
++    if (item == null)
++      throw new NullPointerException ("item must be non-null");
+ 
+-/**
+-  * Returns the number of items in the list.
+-  *
+-  * @return The number of items in the list.
+-  *
+-  * @deprecated This method is deprecated in favor of <code>getItemCount</code>.
+-  */
+-public int
+-countItems()
+-{
+-  return(pItems.size());
+-}
++    pItems.addElement(item);
+ 
+-/*************************************************************************/
++    if (peer != null)
++      ((ChoicePeer) peer).add(item, getItemCount() - 1);
+ 
+-/**
+-  * Returns the item at the specified index in the list.
+-  *
+-  * @param index The index into the list to return the item from.
+-  *
+-  * @exception ArrayIndexOutOfBoundsException If the index is invalid.
+-  */
+-public String
+-getItem(int index)
+-{
+-  return((String)pItems.elementAt(index));
+-}
++    if (selectedIndex == -1) 
++      select( 0 );
++  }
+ 
+-/*************************************************************************/
++  /**
++   * Adds the specified item to this choice box.
++   *
++   * This method is oboslete since Java 2 platform 1.1. Please use @see add
++   * instead.
++   *
++   * @param item The item to add.
++   *
++   * @exception NullPointerException If the item's value is equal to null
++   */
++  public synchronized void addItem(String item)
++  {
++    add(item);
++  }
+ 
+-/**
+-  * Adds the specified item to this choice box.
+-  *
+-  * @param item The item to add.
+-  *
+-  * @exception NullPointerException If the item's value is null
+-  *
+-  * @since 1.1
+-  */
+-public synchronized void
+-add(String item)
+-{
+-  if (item == null)
+-    throw new NullPointerException ("item must be non-null");
++  /** Inserts an item into this Choice.  Existing items are shifted
++   * upwards.  If the new item is the only item, then it is selected.
++   * If the currently selected item is shifted, then the first item is
++   * selected.  If the currently selected item is not shifted, then it
++   * remains selected.
++   *
++   * @param item The item to add.
++   * @param index The index at which the item should be inserted.
++   *
++   * @exception IllegalArgumentException If index is less than 0
++   */
++  public synchronized void insert(String item, int index)
++  {
++    if (index < 0)
++      throw new IllegalArgumentException ("index may not be less then 0");
+ 
+-  pItems.addElement(item);
++    if (index > getItemCount ())
++      index = getItemCount ();
+ 
+-  int i = pItems.size () - 1;
+-  if (peer != null)
+-    {
+-      ChoicePeer cp = (ChoicePeer) peer;
+-      cp.add (item, i);
+-    }
+-  else if (selectedIndex == -1) 
+-    select(0);
+-}
++    pItems.insertElementAt(item, index);
+ 
+-/*************************************************************************/
++    if (peer != null)
++      ((ChoicePeer) peer).add (item, index);
+ 
+-/**
+-  * Adds the specified item to this choice box.
+-  *
+-  * This method is oboslete since Java 2 platform 1.1. Please use @see add
+-  * instead.
+-  *
+-  * @param item The item to add.
+-  *
+-  * @exception NullPointerException If the item's value is equal to null
+-  */
+-public synchronized void
+-addItem(String item)
+-{
+-  add(item);
+-}
++    if (selectedIndex == -1 || selectedIndex >= index)
++      select(0);
++  }
+ 
+-/*************************************************************************/
++  /**
++   * Removes the specified item from the choice box.
++   *
++   * @param item The item to remove.
++   *
++   * @exception IllegalArgumentException If the specified item doesn't exist.
++   */
++  public synchronized void remove(String item)
++  {
++    int index = pItems.indexOf(item);
++    if (index == -1)
++      throw new IllegalArgumentException ("item \""
++					  + item + "\" not found in Choice");
++    remove(index);
++  }
+ 
+-/** Inserts an item into this Choice.  Existing items are shifted
+- * upwards.  If the new item is the only item, then it is selected.
+- * If the currently selected item is shifted, then the first item is
+- * selected.  If the currently selected item is not shifted, then it
+- * remains selected.
+- *
+- * @param item The item to add.
+- * @param index The index at which the item should be inserted.
+- *
+- * @exception IllegalArgumentException If index is less than 0
+- */
+-public synchronized void
+-insert(String item, int index)
+-{
+-  if (index < 0)
+-    throw new IllegalArgumentException ("index may not be less then 0");
++  /**
++   * Removes the item at the specified index from the choice box.
++   *
++   * @param index The index of the item to remove.
++   *
++   * @exception IndexOutOfBoundsException If the index is not valid.
++   */
++  public synchronized void remove(int index)
++  {
++    if ((index < 0) || (index > getItemCount()))
++      throw new IllegalArgumentException("Bad index: " + index);
+ 
+-  if (index > getItemCount ())
+-    index = getItemCount ();
++    pItems.removeElementAt(index);
+ 
+-  pItems.insertElementAt(item, index);
++    if (peer != null)
++      ((ChoicePeer) peer).remove( index );
+ 
+-  if (peer != null)
+-    {
+-      ChoicePeer cp = (ChoicePeer) peer;
+-      cp.add (item, index);
+-    }
+-  else if (selectedIndex == -1 || selectedIndex >= index)
+-    select(0);
+-}
++    if( getItemCount() == 0 )
++      selectedIndex = -1;
++    else 
++      {
++       if( selectedIndex > index )
++         selectedIndex--;
++       else if( selectedIndex == index )
++         selectedIndex = 0;
+ 
+-/*************************************************************************/
++       if( peer != null )
++         ((ChoicePeer)peer).select( selectedIndex );
++       }
++  }
+ 
+-/**
+-  * Removes the specified item from the choice box.
+-  *
+-  * @param item The item to remove.
+-  *
+-  * @exception IllegalArgumentException If the specified item doesn't exist.
+-  */
+-public synchronized void
+-remove(String item)
+-{
+-  int index = pItems.indexOf(item);
+-  if (index == -1)
+-    throw new IllegalArgumentException ("item \""
+-					+ item + "\" not found in Choice");
+-  remove(index);
+-}
+-
+-/*************************************************************************/
+-
+-/**
+-  * Removes the item at the specified index from the choice box.
+-  *
+-  * @param index The index of the item to remove.
+-  *
+-  * @exception IndexOutOfBoundsException If the index is not valid.
+-  */
+-public synchronized void
+-remove(int index)
+-{
+-  if ((index < 0) || (index > getItemCount()))
+-    throw new IllegalArgumentException("Bad index: " + index);
+-
+-  pItems.removeElementAt(index);
+-
+-  if (peer != null)
+-    {
+-      ChoicePeer cp = (ChoicePeer) peer;
+-      cp.remove (index);
+-    }
+-  else
+-    {
+-      if (getItemCount() == 0)
+-	selectedIndex = -1;
+-      else if (index == selectedIndex)
+-	select(0);
+-    }
+-
+-  if (selectedIndex > index)
+-    --selectedIndex;
+-}
+-
+-/*************************************************************************/
+-
+-/**
+-  * Removes all of the objects from this choice box.
+-  */
+-public synchronized void
+-removeAll()
+-{
+-  if (getItemCount() <= 0)
+-    return;
++  /**
++   * Removes all of the objects from this choice box.
++   */
++  public synchronized void removeAll()
++  {
++    if (getItemCount() <= 0)
++      return;
+   
+-  pItems.removeAllElements ();
++    pItems.removeAllElements ();
+ 
+-  if (peer != null)
+-    {
+-      ChoicePeer cp = (ChoicePeer) peer;
+-      cp.removeAll ();
+-    }
++    if (peer != null)
++      {
++	ChoicePeer cp = (ChoicePeer) peer;
++	cp.removeAll ();
++      }
+ 
+-  selectedIndex = -1;
+-}
++    selectedIndex = -1;
++  }
+ 
+-/*************************************************************************/
++  /**
++   * Returns the currently selected item, or null if no item is
++   * selected.
++   *
++   * @return The currently selected item.
++   */
++  public synchronized String getSelectedItem()
++  {
++    return (selectedIndex == -1
++	    ? null
++	    : ((String)pItems.elementAt(selectedIndex)));
++  }
+ 
+-/**
+-  * Returns the currently selected item, or null if no item is
+-  * selected.
+-  *
+-  * @return The currently selected item.
+-  */
+-public synchronized String
+-getSelectedItem()
+-{
+-  return (selectedIndex == -1
+-	  ? null
+-	  : ((String)pItems.elementAt(selectedIndex)));
+-}
++  /**
++   * Returns an array with one row containing the selected item.
++   *
++   * @return An array containing the selected item.
++   */
++  public synchronized Object[] getSelectedObjects()
++  {
++    if (selectedIndex == -1)
++      return null;
+ 
+-/*************************************************************************/
++    Object[] objs = new Object[1];
++    objs[0] = pItems.elementAt(selectedIndex);
+ 
+-/**
+-  * Returns an array with one row containing the selected item.
+-  *
+-  * @return An array containing the selected item.
+-  */
+-public synchronized Object[]
+-getSelectedObjects()
+-{
+-  if (selectedIndex == -1)
+-    return null;
++    return objs;
++  }
+ 
+-  Object[] objs = new Object[1];
+-  objs[0] = pItems.elementAt(selectedIndex);
++  /**
++   * Returns the index of the selected item.
++   *
++   * @return The index of the selected item.
++   */
++  public int getSelectedIndex()
++  {
++    return selectedIndex;
++  }
+ 
+-  return(objs);
+-}
++  /**
++   * Forces the item at the specified index to be selected.
++   *
++   * @param index The index of the row to make selected.
++   *
++   * @exception IllegalArgumentException If the specified index is invalid.
++   */
++  public synchronized void select(int index)
++  {
++    if ((index < 0) || (index >= getItemCount()))
++      throw new IllegalArgumentException("Bad index: " + index);
+ 
+-/*************************************************************************/
++    if( selectedIndex == index ) 
++      return;
+ 
+-/**
+-  * Returns the index of the selected item.
+-  *
+-  * @return The index of the selected item.
+-  */
+-public int
+-getSelectedIndex()
+-{
+-  return(selectedIndex);
+-}
++    selectedIndex = index;
++    if( peer != null ) 
++      ((ChoicePeer)peer).select( index );
++  }
+ 
+-/*************************************************************************/
++  /**
++   * Forces the named item to be selected.
++   *
++   * @param item The item to be selected.
++   *
++   * @exception IllegalArgumentException If the specified item does not exist.
++   */
++  public synchronized void select(String item)
++  {
++    int index = pItems.indexOf(item);
++    if( index >= 0 )
++      select( index );
++  }
+ 
+-/**
+-  * Forces the item at the specified index to be selected.
+-  *
+-  * @param index The index of the row to make selected.
+-  *
+-  * @exception IllegalArgumentException If the specified index is invalid.
+-  */
+-public synchronized void
+-select(int index)
+-{
+-  if ((index < 0) || (index >= getItemCount()))
+-    throw new IllegalArgumentException("Bad index: " + index);
++  /**
++   * Creates the native peer for this object.
++   */
++  public void addNotify()
++  {
++    if (peer == null)
++      peer = getToolkit ().createChoice (this);
++    super.addNotify ();
++  }
+ 
+-  if (pItems.size() > 0) {
+-      selectedIndex = index;
+-      ChoicePeer cp = (ChoicePeer) peer;
+-      if (cp != null) {
+-          cp.select(index);
+-      }
++  /**
++   * Adds the specified listener to the list of registered listeners for
++   * this object.
++   *
++   * @param listener The listener to add.
++   */
++  public synchronized void addItemListener(ItemListener listener)
++  {
++    item_listeners = AWTEventMulticaster.add(item_listeners, listener);
+   }
+-}
+ 
+-/*************************************************************************/
++  /**
++   * Removes the specified listener from the list of registered listeners for
++   * this object.
++   *
++   * @param listener The listener to remove.
++   */
++  public synchronized void removeItemListener(ItemListener listener)
++  {
++    item_listeners = AWTEventMulticaster.remove(item_listeners, listener);
++  }
+ 
+-/**
+-  * Forces the named item to be selected.
+-  *
+-  * @param item The item to be selected.
+-  *
+-  * @exception IllegalArgumentException If the specified item does not exist.
+-  */
+-public synchronized void
+-select(String item)
+-{
+-  int index = pItems.indexOf(item);
+-  if (index >= 0)
+-    select(index);
+-}
++  /**
++   * Processes this event by invoking <code>processItemEvent()</code> if the
++   * event is an instance of <code>ItemEvent</code>, otherwise the event
++   * is passed to the superclass.
++   *
++   * @param event The event to process.
++   */
++  protected void processEvent(AWTEvent event)
++  {
++    if (event instanceof ItemEvent)
++      processItemEvent((ItemEvent)event);
++    else
++      super.processEvent(event);
++  }
+ 
+-/*************************************************************************/
+-
+-/**
+-  * Creates the native peer for this object.
+-  */
+-public void
+-addNotify()
+-{
+-  if (peer == null)
+-    peer = getToolkit ().createChoice (this);
+-  super.addNotify ();
+-}
+-
+-/*************************************************************************/
+-
+-/**
+-  * Adds the specified listener to the list of registered listeners for
+-  * this object.
+-  *
+-  * @param listener The listener to add.
+-  */
+-public synchronized void
+-addItemListener(ItemListener listener)
+-{
+-  item_listeners = AWTEventMulticaster.add(item_listeners, listener);
+-}
+-
+-/*************************************************************************/
+-
+-/**
+-  * Removes the specified listener from the list of registered listeners for
+-  * this object.
+-  *
+-  * @param listener The listener to remove.
+-  */
+-public synchronized void
+-removeItemListener(ItemListener listener)
+-{
+-  item_listeners = AWTEventMulticaster.remove(item_listeners, listener);
+-}
+-
+-/*************************************************************************/
+-
+-/**
+-  * Processes this event by invoking <code>processItemEvent()</code> if the
+-  * event is an instance of <code>ItemEvent</code>, otherwise the event
+-  * is passed to the superclass.
+-  *
+-  * @param event The event to process.
+-  */
+-protected void
+-processEvent(AWTEvent event)
+-{
+-  if (event instanceof ItemEvent)
+-    processItemEvent((ItemEvent)event);
+-  else
+-    super.processEvent(event);
+-}
+-
+-void 
+-dispatchEventImpl(AWTEvent e)
+-{
+-  if (e.id <= ItemEvent.ITEM_LAST
+-      && e.id >= ItemEvent.ITEM_FIRST
+-      && (item_listeners != null || (eventMask & AWTEvent.ITEM_EVENT_MASK) != 0))
+-    processEvent(e);
+-  else
++  void dispatchEventImpl(AWTEvent e)
++  {
+     super.dispatchEventImpl(e);
+-}
+ 
+-/*************************************************************************/
++    if( e.id <= ItemEvent.ITEM_LAST && e.id >= ItemEvent.ITEM_FIRST && 
++	( item_listeners != null || 
++	  ( eventMask & AWTEvent.ITEM_EVENT_MASK ) != 0 ) )
++      processEvent(e);
++  }
+ 
+-/**
+-  * Processes item event by dispatching to any registered listeners.
+-  *
+-  * @param event The event to process.
+-  */
+-protected void
+-processItemEvent(ItemEvent event)
+-{
+-  int index = pItems.indexOf((String) event.getItem());
+-  // Don't call back into the peers when selecting index here
+-  if (event.getStateChange() == ItemEvent.SELECTED)
+-    this.selectedIndex = index;
+-  if (item_listeners != null)
+-    item_listeners.itemStateChanged(event);
+-}
++  /**
++   * Processes item event by dispatching to any registered listeners.
++   *
++   * @param event The event to process.
++   */
++  protected void processItemEvent(ItemEvent event)
++  {
++    int index = pItems.indexOf((String) event.getItem());
++    if (item_listeners != null)
++      item_listeners.itemStateChanged(event);
++  }
+ 
+-/*************************************************************************/
++  /**
++   * Returns a debugging string for this object.
++   *
++   * @return A debugging string for this object.
++   */
++  protected String paramString()
++  {
++    return "selectedIndex=" + selectedIndex + "," + super.paramString();
++  }
+ 
+-/**
+-  * Returns a debugging string for this object.
+-  *
+-  * @return A debugging string for this object.
+-  */
+-protected String
+-paramString()
+-{
+-  return ("selectedIndex=" + selectedIndex + "," + super.paramString());
+-}
+-
+   /**
+    * Returns an array of all the objects currently registered as FooListeners
+    * upon this Choice. FooListeners are registered using the addFooListener
+Index: libjava/classpath/include/gnu_java_awt_peer_gtk_GtkChoicePeer.h
+===================================================================
+--- libjava/classpath/include/gnu_java_awt_peer_gtk_GtkChoicePeer.h	(revision 116606)
++++ libjava/classpath/include/gnu_java_awt_peer_gtk_GtkChoicePeer.h	(working copy)
+@@ -11,9 +11,8 @@
+ #endif
+ 
+ JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_create (JNIEnv *env, jobject);
+-JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_append (JNIEnv *env, jobject, jobjectArray);
+ JNIEXPORT jint JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeGetSelected (JNIEnv *env, jobject);
+-JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeAdd (JNIEnv *env, jobject, jstring, jint);
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_add (JNIEnv *env, jobject, jstring, jint);
+ JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeRemove (JNIEnv *env, jobject, jint);
+ JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_nativeRemoveAll (JNIEnv *env, jobject);
+ JNIEXPORT void JNICALL Java_gnu_java_awt_peer_gtk_GtkChoicePeer_connectSignals (JNIEnv *env, jobject);
+Index: libjava/classpath/ChangeLog
+===================================================================
+--- libjava/classpath/ChangeLog	(revision 116606)
++++ libjava/classpath/ChangeLog	(working copy)
+@@ -1,3 +1,33 @@
++2006-08-02  Sven de Marothy  <sven@physto.se>
++
++	* gnu/java/awt/peer/gtk/GtkChoicePeer.java
++	(remove): Force event on removing item 0 when it's selected.
++	(handleEvent): Always call Choice.selected().
++	* java/awt/Choice.java:
++	(remove): Simplify and correct.
++
++2006-07-30  Sven de Marothy  <sven@physto.se>
++
++	* java/awt/Choice.java:
++	(accessibleAction): Call select() directly.
++	(add, insert, remove): Reimplement.
++	(dispatchEventImpl): Always call super.
++	(processItemEvent): Does not set the index.
++	* include/gnu_java_awt_peer_gtk_GtkChoicePeer.h
++	* native/jni/gtk-peer/gnu_java_awt_peer_gtk_GtkChoicePeer.c
++	(append): removed.
++	(nativeAdd): Name changed to add.
++	(selection_changed_cb): Simplify callback.
++	* gnu/java/awt/peer/gtk/GtkChoicePeer.java
++	(selected): New field.
++	(add): Replaced with native impl.
++	(handleEvent): New method.
++
++2006-09-08  Thomas Fitzsimmons  <fitzsim@redhat.com>
++
++	* tools/gnu/classpath/tools/appletviewer/Main.java: Warn about
++	missing security manager when run in standalone mode.
++
+ 2006-07-06  Paul Eggert  <eggert@cs.ucla.edu>
+ 
+ 	Port to hosts whose 'sort' and 'tail' implementations
+Index: libjava/classpath/ChangeLog.gcj
+===================================================================
+--- libjava/classpath/ChangeLog.gcj	(revision 116606)
++++ libjava/classpath/ChangeLog.gcj	(working copy)
+@@ -1,3 +1,53 @@
++2006-09-25  Tom Tromey  <tromey@redhat.com>
++
++	* native/jni/gconf-peer/Makefile.in: Rebuilt.
++	* native/jni/gconf-peer/Makefile.am (libgconfpeer_la_LDFLAGS): New
++	variable.
++
++2006-09-25  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/29178:
++	* gnu/java/nio/charset/US_ASCII.java (Encoder.canEncode): New method.
++	(Encoder.canEncode): Likewise.
++	(Encoder.encodeLoop): Return unmappable for all non-ASCII characters.
++	* gnu/java/nio/charset/ByteCharset.java (Encoder.canEncode): New
++	method.
++	(Encoder.canEncode): Likewise.
++	* gnu/java/nio/charset/ISO_8859_1.java (Encoder.canEncode): New
++	method.
++	(Encoder.canEncode): Likewise.
++
++2006-09-22  David Daney  <ddaney@avtrex.com>
++
++	PR classpath/28661
++	* gnu/java/net/protocol/http/HTTPURLConnection.java (connect):  Add
++	default content-type for POST method.
++
++2006-09-25  Mark Wielaard  <mark@klomp.org>
++
++	Suggested by Aaron M. Ucko <ucko@debian.org>
++	Fixes bug #29203
++	* native/fdlibm/mprec.c (ulp): Define L as int32_t.
++
++2006-09-18  Tom Tromey  <tromey@redhat.com>
++
++	* gnu/javax/net/ssl/provider/SSLSocket.java (isBound, isClosed,
++	isConnected): Removed old comment.
++	(getRemoteSocketAddress): Uncommented.
++	(setOOBInline, getOOBInline, setKeepAlive, getKeepAlive,
++	setTrafficClass, getTrafficClass, setReuseAddress,
++	getReuseAddress, shutdownInput, shutdownOutput, isInputShutdown,
++	isOutputShutdown): Uncommented.
++
++2006-08-29  Gary Benson  <gbenson@redhat.com>
++
++	* java/net/SocketPermission.java
++	(maybeBracketIPv6Address): New method.
++	(<init>): Pass the hostport argument through the above.
++
++	* java/net/NetworkInterface.java (getInetAddresses):
++	Revert the previous change.
++
+ 2006-08-24  Gary Benson  <gbenson@redhat.com>
+ 
+ 	* java/net/NetworkInterface.java (getInetAddresses): Bracket IPv6
+Index: libjava/ChangeLog
+===================================================================
+--- libjava/ChangeLog	(revision 116606)
++++ libjava/ChangeLog	(working copy)
+@@ -1,3 +1,27 @@
++2006-09-27  Tom Tromey  <tromey@redhat.com>
++
++	https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=201712
++	* java/util/Locale.java (hashcode): No longer transient.
++	(writeObject): Use ObjectOutputStream.PutField and
++	defaultWriteObject.
++	(readObject): Use defaultReadObject.
++
++2006-09-19  Mark Wielaard  <mark@klomp.org>
++
++	Fixes bug #29137
++	* java/util/logging/LogManager.java (addLogger): Always check for
++	existing children of a new Logger.
++
++2006-09-19  Tom Tromey  <tromey@redhat.com>
++
++	* java/util/logging/LogManager.java: Re-merged with Classpath.
++
++2006-08-31  Tom Tromey  <tromey@redhat.com>
++
++	PR libgcj/28698:
++	* libgcj_bc.c (DECLARE_PRIM_TYPE): New macro.  Declare primitive
++	classes.
++
+ 2006-08-22  Thomas Fitzsimmons  <fitzsim@redhat.com>
+ 
+ 	PR libgcj/27890
+Index: libjava/java/util/Locale.java
+===================================================================
+--- libjava/java/util/Locale.java	(revision 116606)
++++ libjava/java/util/Locale.java	(working copy)
+@@ -1,5 +1,5 @@
+ /* Locale.java -- i18n locales
+-   Copyright (C) 1998, 1999, 2001, 2002, 2005  Free Software Foundation, Inc.
++   Copyright (C) 1998, 1999, 2001, 2002, 2005, 2006  Free Software Foundation, Inc.
+ 
+ This file is part of GNU Classpath.
+ 
+@@ -190,7 +190,7 @@
+    *
+    * @serial should be -1 in serial streams
+    */
+-  private transient int hashcode;
++  private int hashcode;
+ 
+   /**
+    * The default locale. Except for during bootstrapping, this should never be
+@@ -839,11 +839,9 @@
+   private void writeObject(ObjectOutputStream s)
+     throws IOException
+   {
+-    s.writeObject(language);
+-    s.writeObject(country);
+-    s.writeObject(variant);
+-    // Hashcode field is always written as -1.
+-    s.writeInt(-1);
++    ObjectOutputStream.PutField fields = s.putFields();
++    fields.put("hashcode", -1);
++    s.defaultWriteObject();
+   }
+ 
+   /**
+@@ -857,10 +855,10 @@
+   private void readObject(ObjectInputStream s)
+     throws IOException, ClassNotFoundException
+   {
+-    language = ((String) s.readObject()).intern();
+-    country = ((String) s.readObject()).intern();
+-    variant = ((String) s.readObject()).intern();
+-    // Recompute hashcode.
++    s.defaultReadObject();
++    language = language.intern();
++    country = country.intern();
++    variant = variant.intern();
+     hashcode = language.hashCode() ^ country.hashCode() ^ variant.hashCode();
+   }
+ } // class Locale
+Index: libjava/java/util/logging/LogManager.java
+===================================================================
+--- libjava/java/util/logging/LogManager.java	(revision 116606)
++++ libjava/java/util/logging/LogManager.java	(working copy)
+@@ -39,6 +39,8 @@
+ 
+ package java.util.logging;
+ 
++import gnu.classpath.SystemProperties;
++
+ import java.beans.PropertyChangeListener;
+ import java.beans.PropertyChangeSupport;
+ import java.io.ByteArrayInputStream;
+@@ -50,12 +52,11 @@
+ import java.util.Enumeration;
+ import java.util.HashMap;
+ import java.util.Iterator;
++import java.util.List;
+ import java.util.Map;
+ import java.util.Properties;
+ import java.util.StringTokenizer;
+ 
+-import gnu.classpath.SystemProperties;
+-
+ /**
+  * The <code>LogManager</code> maintains a hierarchical namespace
+  * of Logger objects and manages properties for configuring the logging
+@@ -108,11 +109,23 @@
+ public class LogManager
+ {
+   /**
++   * The object name for the logging management bean.
++   * @since 1.5
++   */
++  public static final String LOGGING_MXBEAN_NAME
++    = "java.util.logging:type=Logging";
++
++  /**
+    * The singleton LogManager instance.
+    */
+   private static LogManager logManager;
+ 
+   /**
++   * The singleton logging bean.
++   */
++  private static LoggingMXBean loggingBean;
++
++  /**
+    * The registered named loggers; maps the name of a Logger to
+    * a WeakReference to it.
+    */
+@@ -305,24 +318,21 @@
+      * When adding "foo.bar", the logger "foo.bar.baz" should change
+      * its parent to "foo.bar".
+      */
+-    if (parent != Logger.root)
++    for (Iterator iter = loggers.keySet().iterator(); iter.hasNext();)
+       {
+-	for (Iterator iter = loggers.keySet().iterator(); iter.hasNext();)
+-	  {
+-	    Logger possChild = (Logger) ((WeakReference) loggers.get(iter.next()))
+-              .get();
+-	    if ((possChild == null) || (possChild == logger)
+-	        || (possChild.getParent() != parent))
+-	      continue;
+-
+-	    if (! possChild.getName().startsWith(name))
+-	      continue;
+-
+-	    if (possChild.getName().charAt(name.length()) != '.')
+-	      continue;
+-
+-	    possChild.setParent(logger);
+-	  }
++	Logger possChild = (Logger) ((WeakReference) loggers.get(iter.next()))
++	  .get();
++	if ((possChild == null) || (possChild == logger)
++	    || (possChild.getParent() != parent))
++	  continue;
++	
++	if (! possChild.getName().startsWith(name))
++	  continue;
++	
++	if (possChild.getName().charAt(name.length()) != '.')
++	  continue;
++	
++	possChild.setParent(logger);
+       }
+ 
+     return true;
+@@ -836,11 +846,11 @@
+       }
+     catch (ClassNotFoundException e)
+       {
+-        warn(property, className, "class not found");
++        warn(property, className, "class not found", e);
+       }
+     catch (IllegalAccessException e)
+       {
+-        warn(property, className, "illegal access");
++        warn(property, className, "illegal access", e);
+       }
+     catch (InstantiationException e)
+       {
+@@ -848,7 +858,7 @@
+       }
+     catch (java.lang.LinkageError e)
+       {
+-        warn(property, className, "linkage error");
++        warn(property, className, "linkage error", e);
+       }
+ 
+     return null;
+@@ -909,4 +919,63 @@
+       }
+   }
+ 
++  /**
++   * Return the logging bean.  There is a single logging bean per
++   * VM instance.
++   * @since 1.5
++   */
++  public static synchronized LoggingMXBean getLoggingMXBean()
++  {
++    if (loggingBean == null)
++      {
++        loggingBean = new LoggingMXBean()
++        {
++          public String getLoggerLevel(String logger)
++          {
++            LogManager mgr = getLogManager();
++            Logger l = mgr.getLogger(logger);
++            if (l == null)
++              return null;
++            Level lev = l.getLevel();
++            if (lev == null)
++              return "";
++            return lev.getName();
++          }
++
++          public List getLoggerNames()
++          {
++            LogManager mgr = getLogManager();
++            // This is inefficient, but perhaps better for maintenance.
++            return Collections.list(mgr.getLoggerNames());
++          }
++
++          public String getParentLoggerName(String logger)
++          {
++            LogManager mgr = getLogManager();
++            Logger l = mgr.getLogger(logger);
++            if (l == null)
++              return null;
++            l = l.getParent();
++            if (l == null)
++              return "";
++            return l.getName();
++          }
++
++          public void setLoggerLevel(String logger, String level)
++          {
++            LogManager mgr = getLogManager();
++            Logger l = mgr.getLogger(logger);
++            if (l == null)
++              throw new IllegalArgumentException("no logger named " + logger);
++            Level newLevel;
++            if (level == null)
++              newLevel = null;
++            else
++              newLevel = Level.parse(level);
++            l.setLevel(newLevel);
++          }
++        };
++      }
++    return loggingBean;
++  }
+ }
+Index: libjava/Makefile.am
+===================================================================
+--- libjava/Makefile.am	(revision 116606)
++++ libjava/Makefile.am	(working copy)
+@@ -332,7 +332,21 @@
+ 	rm -rf $$JARDIR $$JARDIR.stamp
+ 
+ libgcj-tools-$(gcc_version).jar: classpath/tools/tools.jar
+-	cp $< $@
++	javasrcdir=`cd $(srcdir) && pwd`; \
++	JARDIR=`mktemp -d $@.XXXXXX` || exit 1; \
++	touch -r $$javasrcdir/../gcc/ChangeLog $$JARDIR.stamp; \
++	[ $$javasrcdir/../gcc/java/ChangeLog -nt $$JARDIR.stamp ] \
++	    && touch -r $$javasrcdir/../gcc/java/ChangeLog $$JARDIR.stamp; \
++	[ $$javasrcdir/ChangeLog -nt $$JARDIR.stamp ] \
++	    && touch -r $$javasrcdir/ChangeLog $$JARDIR.stamp; \
++	cd $$JARDIR || exit 1; \
++	$(JAR) -xf ../$<; \
++	rm -rf META-INF; \
++	find -type f | xargs touch -r ../$$JARDIR.stamp; \
++	find -type d | xargs touch -r ../$$JARDIR.stamp; \
++	find * | LC_ALL=C sort | $(JAR) -cfM@E ../$@ || exit 1; \
++	cd ..; \
++	rm -rf $$JARDIR $$JARDIR.stamp
+ 
+ CLEANFILES = libgcj-$(gcc_version).jar libgcj-tools-$(gcc_version).jar
+ DISTCLEANFILES = native.dirs

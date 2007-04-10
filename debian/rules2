@@ -130,6 +130,10 @@ ifeq ($(with_objc)-$(with_objc_gc),yes-yes)
   CONFARGS += --enable-objc-gc
 endif
 
+ifeq ($(findstring sh4-linux-gnu,$(DEB_TARGET_GNU_TYPE)),sh4-linux-gnu)
+  CONFARGS += --disable-softfloat
+endif
+
 ifeq ($(findstring arm-linux,$(DEB_TARGET_GNU_TYPE)),arm-linux)
   CONFARGS += --enable-softfloat
 endif
@@ -181,6 +185,8 @@ else
 	--program-prefix=$(TARGET_ALIAS)- \
 	--includedir=/$(PF)/$(DEB_TARGET_GNU_TYPE)/include \
 	--enable-languages=$(shell echo $(enabled_languages) | tr -s ' ' ',') \
+	--without-system-libunwind --enable-ssp --disable-libssp \
+	--disable-libmudflap --enable-fp --enable-libstdcxx-allocator=new \
 	$(BUILD_OPT) \
 	--host=$(HOST_ALIAS) \
 	--target=$(TARGET_ALIAS)
@@ -200,12 +206,13 @@ ifdef DEB_CROSS_BOOTSTRAP
 	--target=$(TARGET_ALIAS) \
   	--disable-multilib \
 	--with-newlib \
+	--without-system-libunwind --enable-ssp --disable-libssp \
 	--disable-nls \
 	--enable-threads=no \
 	--enable-symvers=gnu \
 	--disable-shared \
 	--disable-libmudflap \
-	--disable-libssp \
+	--disable-libffi \
 	--enable-__cxa_atexit 
 ifeq ($(versioned_packages),yes)
   CONFARGS += --program-suffix=-$(BASE_VERSION)
