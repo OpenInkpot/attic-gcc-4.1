@@ -1,5 +1,5 @@
 Source: gcc-4.1
-Section: devel
+Section: host-tools
 Priority: standard
 Maintainer: Alexander Shishkin <alexander.shishkin@siemens.com>
 Standards-Version: 3.6.1

@@ -25,7 +25,7 @@ define(`ifenabled', `ifelse(index(enabled_languages, `$1'), -1, `dnl', `$2')')
 divert`'dnl
 dnl --------------------------------------------------------------------------
 Source: SRCNAME
-Section: devel
+Section: host-tools
 Priority: PRI(standard)
 Maintainer: MAINTAINER
 Standards-Version: 3.6.1
@@ -39,7 +39,7 @@ Build-Depends-Indep: doxygen (>= 1.4.2), graphviz (>= 2.2)
 ifdef(`TARGET', `', `
 Package: gcc`'PV-base
 Architecture: any
-Section: devel
+Section: host-tools
 Priority: PRI(required)
 Description: The GNU Compiler Collection (base package)
  This package contains files common to all languages and libraries
@@ -54,7 +54,7 @@ ifdef(`BASE_ONLY', `dnl
 ifenabled(`libgcc',`
 Package: libgcc1`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`devel',`libs')
+Section: ifdef(`TARGET',`core',`libs')
 Priority: ifdef(`TARGET',`extra',required)
 ifdef(`TARGET', `Provides: libgcc1-`'ARCH-dcv1',`')
 Depends: ${shlibs:Depends}ifelse(ARCH,`ia64',`, libunwind7`'LS (>= 0.98.5-7)')
@@ -74,7 +74,7 @@ ifdef(`TARGET', `dnl
 ifdef(`QQ',`
 Package: libgcc1
 Architecture: `'TARGET
-Section: libs
+Section: core
 Priority: required
 Description: GCC support library`'ifdef(`TARGET)',` (TARGET)', `')
  Shared version of the support library, a library of internal subroutines
@@ -134,7 +134,7 @@ Description: GCC support library (ia32)
 ifenabled(`cdev',`
 Package: gcc`'PV`'TS
 Architecture: any
-Section: devel
+Section: ifdef(`TARGET',`host-tools',`devel')
 Priority: ifdef(`TARGET',`extra',`PRI(standard)')
 Depends: ifdef(`TARGET', `',`gcc`'PV-base (>= CV)'), libgcc`'GCC_SO`'LS (>= ifelse(GCC_SO,1,CEV,CV)), ${shlibs:Depends}, cpp`'PV`'TS (>= CV), cpp`'PV`'TS (<< NV), binutils`'TS (>= BINUTILSV)ifelse(ARCH,`ia64',`, libunwind7-dev`'LS (>= 0.98.5-1)')
 Recommends: LIBC_DEP
@@ -169,7 +169,7 @@ Description: The GNU C compiler (cross compiler for hppa64)
 ifenabled(`cdev',`
 Package: cpp`'PV`'TS
 Architecture: any
-Section: ifdef(`TARGET',`devel',`interpreters')
+Section: ifdef(`TARGET',`host-tools',`interpreters')
 Priority: ifdef(`TARGET',`extra',`PRI(standard)')
 Depends: ifdef(`TARGET', `',`gcc`'PV-base (>= CV), gcc`'PV-base (<< NV)'), ${shlibs:Depends}
 Conflicts: gcc`'PV`'TS (<< BREAKV), g++`'PV`'TS (<< BREAKV), gobjc`'PV`'TS (<< BREAKV), gcj`'PV`'TS (<< BREAKV), g77`'PV`'TS (<< BREAKV), gnat`'PV`'TS (<< BREAKV), treelang`'PV`'TS (<< BREAKV), gpc`'GPC_PV (<< BREAKV)
@@ -200,7 +200,7 @@ ifenabled(`c++',`
 ifenabled(`c++dev',`
 Package: g++`'PV`'TS
 Architecture: any
-Section: devel
+Section: ifdef(`TARGET',`host-tools',`devel')
 Priority: ifdef(`TARGET',`extra',`PRI(standard)')
 Depends: ifdef(`TARGET', `', `gcc`'PV-base (>= CV),') ${shlibs:Depends}, gcc`'PV`'TS (>= CV), gcc`'PV`'TS (<< NV), libuclibc++-dev`'LS | libstdc++CXX_SO-dev`'LS (>= CV)
 Replaces: gcc`'TS (<= 2.7.2.3-3)
@@ -487,7 +487,7 @@ ifenabled(`c++',`
 ifenabled(`libcxx',`
 Package: libstdc++CXX_SO`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`devel',`libs')
+Section: ifdef(`TARGET',`core',`libs')
 Priority: ifdef(`TARGET',`extra',PRI(required))
 Depends: ifdef(`TARGET', `', `gcc`'PV-base (>= CV),') ${shlibs:Depends}
 ifdef(`TARGET', `Provides: libstdc++`'CXX_SO-`'ARCH-dcv1',`')
@@ -508,7 +508,7 @@ ifdef(`TARGET', `dnl
 ifdef(`TARGET', `dnl
 Package: libstdc++CXX_SO
 Architecture: `'TARGET
-Section: libs
+Section: ifdef(`TARGET',`core',`devel')
 Priority: PRI(required)
 Depends: ${shlins:Depends}
 Description: The GNU Standard C++ Library v3 (TARGET)
@@ -559,7 +559,7 @@ ifdef(`TARGET', `dnl
 ifenabled(`c++dev',`
 Package: libstdc++CXX_SO-dev`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`devel',`libdevel')
+Section: ifdef(`TARGET',`host-tools',`libdevel')
 Priority: ifdef(`TARGET',`extra',PRI(standard))
 Depends: ifdef(`TARGET', `', `gcc`'PV-base (>= CV),') libstdc++CXX_SO`'LS (>= CV), LIBC_DEP, g++`'PV`'TS (>= CV)
 ifdef(`TARGET', `Provides: libstdc++CXX_SO-dev-`'ARCH-dcv1',`')
@@ -585,7 +585,7 @@ ifdef(`TARGET', `dnl
 
 Package: libstdc++CXX_SO-pic`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`devel',`libdevel')
+Section: ifdef(`TARGET',`host-tools',`libdevel')
 Priority: extra
 Depends: ifdef(`TARGET', `', `gcc`'PV-base (>= CV),') libstdc++CXX_SO`'LS (>= CV), libstdc++CXX_SO-dev`'LS (>= CV)
 Conflicts: libstdc++6-0-pic
@@ -603,7 +603,7 @@ ifdef(`TARGET', `dnl
 
 Package: libstdc++CXX_SO-dbg`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`devel',`libdevel')
+Section: ifdef(`TARGET',`host-tools',`libdevel')
 Priority: extra
 Depends: ifdef(`TARGET', `', `gcc`'PV-base (>= CV),') libstdc++CXX_SO`'LS (>= CV)
 Recommends: libstdc++CXX_SO-dev`'LS (>= CV)
