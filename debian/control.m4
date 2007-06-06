@@ -18,7 +18,7 @@ define(`PN', `$1')
 ifdef(`PRI', `', `
     define(`PRI', `$1')
 ')
-define(`MAINTAINER', `Alexander Shishkin <alexander.shishkin@siemens.com>')
+define(`MAINTAINER', `Alexander Shishkin <virtuoso@slind.org>')
 
 define(`ifenabled', `ifelse(index(enabled_languages, `$1'), -1, `dnl', `$2')')
 
@@ -54,7 +54,7 @@ ifdef(`BASE_ONLY', `dnl
 ifenabled(`libgcc',`
 Package: libgcc1`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`core',`libs')
+Section: ifdef(`TARGET',`host-tools',`libs')
 Priority: ifdef(`TARGET',`extra',required)
 ifdef(`TARGET', `Provides: libgcc1-`'ARCH-dcv1',`')
 Depends: ${shlibs:Depends}ifelse(ARCH,`ia64',`, libunwind7`'LS (>= 0.98.5-7)')
@@ -487,7 +487,7 @@ ifenabled(`c++',`
 ifenabled(`libcxx',`
 Package: libstdc++CXX_SO`'LS
 Architecture: ifdef(`TARGET',`all',`any')
-Section: ifdef(`TARGET',`core',`libs')
+Section: ifdef(`TARGET',`host-tools',`libs')
 Priority: ifdef(`TARGET',`extra',PRI(required))
 Depends: ifdef(`TARGET', `', `gcc`'PV-base (>= CV),') ${shlibs:Depends}
 ifdef(`TARGET', `Provides: libstdc++`'CXX_SO-`'ARCH-dcv1',`')
