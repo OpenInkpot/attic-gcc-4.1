@@ -68,6 +68,7 @@ debian_patches = \
 	gcc-unwind-r111705 \
 	gcc-unwind-r120406 \
 	pr9861-nojava \
+	sh4-conf
 
 
 
