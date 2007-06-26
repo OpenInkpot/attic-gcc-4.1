@@ -95,6 +95,7 @@ CONFARGS = -v \
 	--enable-shared \
 	--with-system-zlib \
 	--enable-nls \
+	--disable-libffi \
 	--without-included-gettext
 
 ifeq ($(versioned_packages),yes)
