@@ -110,7 +110,7 @@ $(binary_stamp)-libstdcxx: $(install_stamp)
 	debian/dh_rmemptydirs -p$(p_lib)
 
 	dh_installdeb -p$(p_lib)
-	PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_lib)
+	ARCH=$(DEB_TARGET_ARCH) PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_lib)
 	dh_compress -p$(p_lib)
 	dh_fixperms -p$(p_lib)
 	dh_makeshlibs -p$(p_lib) -V '$(p_lib) (>= $(DEB_STDCXX_SOVERSION))' -n
@@ -122,7 +122,7 @@ $(binary_stamp)-libstdcxx: $(install_stamp)
 	dh_gencontrol -p$(p_lib) -u-v$(DEB_VERSION)
 
 	dh_installdeb -p$(p_lib_native)
-	PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_lib_native)
+	ARCH=$(DEB_TARGET_ARCH) PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_lib_native)
 	dh_compress -p$(p_lib_native)
 	dh_fixperms -p$(p_lib_native)
 	dh_makeshlibs -p$(p_lib_native) -V '$(p_lib_native) (>= $(DEB_STDCXX_SOVERSION))' -n
@@ -277,7 +277,7 @@ ifeq ($(with_cxxdev),yes)
 	#debian/dh_rmemptydirs -p$(p_dbg)
 endif
 
-	#PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_dev) -p$(p_pic)
+	ARCH=$(DEB_TARGET_ARCH) PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_dev) -p$(p_pic)
 	dh_compress -p$(p_dev) -X.txt
 	# -p$(p_pic) -p$(p_dbg) -X.txt
 	dh_fixperms -p$(p_dev)

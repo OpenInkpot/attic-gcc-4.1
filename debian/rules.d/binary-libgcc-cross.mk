@@ -76,7 +76,7 @@ ifeq ($(with_shared_libgcc),yes)
   endif
 	cat debian/$(p_lgcc)/DEBIAN/shlibs >> debian/shlibs.local
 endif
-	PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_lgcc)
+	ARCH=$(DEB_TARGET_ARCH) PATH=/usr/share/dpkg-cross:$$PATH dh_strip -p$(p_lgcc)
 	dh_compress -p$(p_lgcc)
 	dh_fixperms -p$(p_lgcc)
 ifneq ($(DEB_CANADA),yes)
