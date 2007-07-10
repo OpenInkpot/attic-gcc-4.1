@@ -82,7 +82,7 @@ endif
 ifneq ($(DEB_CANADA),yes)
 	dh_gencontrol -p$(p_lgcc) -u-v$(DEB_LIBGCC_VERSION)
 endif
-	DEB_HOST_ARCH=$(DEB_TARGET_ARCH) dh_gencontrol -p$(p_lgcc_native) -u-v$(DEB_EVERSION)
+	DEB_HOST_ARCH=$(DEB_TARGET_ARCH) dh_gencontrol -p$(p_lgcc_native) -u-v$(DEB_VERSION)
 	b=libgcc; v=$(GCC_SONAME); \
 	for ext in preinst postinst prerm postrm; do \
 	  if [ -f debian/$$b$$t.$$ext ]; then \
