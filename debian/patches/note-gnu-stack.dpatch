@@ -260,7 +260,7 @@ Index: libffi/src/arm/sysv.S
          .size    CNAME(ffi_call_SYSV),.ffi_call_SYSV_end-CNAME(ffi_call_SYSV)
  
 +#if defined __ELF__ && defined __linux__
-+	.section	.note.GNU-stack,"",@progbits
++	.section	.note.GNU-stack,"",%progbits
 +#endif
 Index: libffi/src/m68k/sysv.S
 ===================================================================
