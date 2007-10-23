@@ -221,6 +221,9 @@ endif
 ifneq ($(with_sysroot),)
   CONFARGS += --with-sysroot=$(with_sysroot)
 endif
+
+# Avoid conflict with our new binutils.
+CC = gcc -B/usr/bin
 endif
 
 bootstrap_target = profiledbootstrap
