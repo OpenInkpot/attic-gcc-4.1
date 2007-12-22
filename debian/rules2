@@ -14,10 +14,10 @@ IP	= install -m 755	# Install program
 IS	= install -m 755	# Install script
 
 #number of jobs to run for build
-ifneq ($(USE_NJOBS),)
-  NJOBS   = -j$(shell if [ -f /proc/cpuinfo ]; \
-		    then echo `cat /proc/cpuinfo | grep 'processor' | wc -l`; \
-		    else echo 1; fi)
+ifneq ($(SETNJOBS),)
+  NJOBS := -j$(SETNJOBS)
+else
+  NJOBS := -j1
 endif
 
 # kernel-specific ulimit hack
