@@ -35,6 +35,7 @@ debian_patches = \
 	arm-libffi \
 	note-gnu-stack \
 	arm-gij \
+	arm-unbreak-eabi-armv4t \
 	hppa-cbranch \
 	hppa-cbranch2 \
 	m68k-fjump \

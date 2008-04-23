@@ -1,3 +1,9 @@
+gcc-4.1 (4.1.2-2) unstable; urgency=low
+
+  * armel support. Added patch arm-unbreak-eabi-armv4t.dpatch from debian.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Tue, 22 Apr 2008 22:05:09 +0700
+
 gcc-4.1 (4.1.2-1) unstable; urgency=low
 
   * Merged 4.1.2 from debian.
