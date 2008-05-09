@@ -71,6 +71,11 @@ debian_patches = \
 	pr9861-nojava \
 	sh4-conf
 
+#
+# Newer glibc need it, relying on atomic ops by CPU for TLS.
+#
+debian_patches += cpu-default-i486
+
 # This doesn't work and requires more tweaking
 # sh4a-link-spec
 
